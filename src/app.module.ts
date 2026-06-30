@@ -8,6 +8,9 @@ import { FoodsModule } from './foods/foods.module';
 import { DiaryModule } from './diary/diary.module';
 import { RecipesModule } from './recipes/recipes.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { SupplementsModule } from './supplements/supplements.module';
+import { SleepModule } from './sleep/sleep.module';
+import { FastingModule } from './fasting/fasting.module';
 
 @Module({
   imports: [
@@ -20,6 +23,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
     DiaryModule,
     RecipesModule,
     DashboardModule,
+    SupplementsModule,
+    SleepModule,
+    FastingModule,
   ],
 })
 export class AppModule {}

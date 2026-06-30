@@ -2,7 +2,8 @@ import {
   Controller, Get, Post, Put, Delete,
   Param, Body, Request, Query, UseGuards,
 } from '@nestjs/common';
-import { DayTypesService, CreateDayTypeDto, UpdateDayTypeDto } from './day-types.service';
+import { DayTypesService } from './day-types.service';
+import { CreateDayTypeDto, UpdateDayTypeDto } from './dto/day-type.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('day-types')

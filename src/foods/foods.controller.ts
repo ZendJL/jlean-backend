@@ -23,10 +23,10 @@ export class FoodsController {
     return this.foods.getByBarcode(code);
   }
 
-  /** POST /foods/import — guardar alimento externo en DB local */
+  /** POST /foods/import — guardar alimento externo (USDA) en DB local */
   @Post('import')
   import(@Body() dto: ImportFoodDto) {
-    return this.foods.importFood(dto);
+    return this.foods.importFromUsda(dto.fdcId);
   }
 
   /** GET /foods/:id */

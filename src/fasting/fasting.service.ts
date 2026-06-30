@@ -1,59 +1,48 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { FastingWindowDto } from './dto/fasting-window.dto';
+import { Injectable } from '@nestjs/common'
+import { PrismaService } from '../prisma/prisma.service'
 
 @Injectable()
 export class FastingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {}
 
-  async getConfig(userId: string) {
-    return this.prisma.fastingConfig.findUnique({ where: { userId } });
+  getConfig(userId: string) {
+    return this.prisma.fastingConfig.findUnique({ where: { userId } })
   }
 
-  async setConfig(userId: string, dto: FastingWindowDto) {
+  setConfig(userId: string, dto: { fastHours: number; eatHours: number; eatStartHour: number; active: boolean }) {
     return this.prisma.fastingConfig.upsert({
       where:  { userId },
-      create: { userId, ...dto, active: true },
-      update: { ...dto, active: true },
-    });
+      create: { userId, ...dto },
+      update: { ...dto },
+    })
   }
 
   async getStatus(userId: string) {
-    const config = await this.prisma.fastingConfig.findUnique({ where: { userId } });
+    const config = await this.prisma.fastingConfig.findUnique({ where: { userId } })
+
     if (!config || !config.active) {
-      return { active: false, fasting: false, message: 'No fasting window configured.' };
+      return { active: false, fasting: false, inEatingWindow: false, windowLabel: '', eatStartHour: 0, eatEndHour: 0, message: 'No fasting config set' }
     }
 
-    const now = new Date();
-    const currentHour = now.getHours() + now.getMinutes() / 60;
-    const eatEnd = (config.eatStartHour + config.eatHours) % 24;
+    const now  = new Date()
+    const hour = now.getHours()
+    const eatEnd = (config.eatStartHour + config.eatHours) % 24
+
     const inEatingWindow =
-      config.eatStartHour < eatEnd
-        ? currentHour >= config.eatStartHour && currentHour < eatEnd
-        : currentHour >= config.eatStartHour || currentHour < eatEnd;
-
-    const fastingNow = !inEatingWindow;
-    const windowLabel = `${config.fastHours}:${config.eatHours}`;
-
-    let message: string;
-    if (fastingNow) {
-      const hoursUntilEat = config.eatStartHour > currentHour
-        ? config.eatStartHour - currentHour
-        : 24 - currentHour + config.eatStartHour;
-      message = `Fasting window active (${windowLabel}). Eating window opens in ${Math.round(hoursUntilEat * 10) / 10}h.`;
-    } else {
-      const hoursUntilFast = eatEnd > currentHour ? eatEnd - currentHour : 24 - currentHour + eatEnd;
-      message = `Eating window open (${windowLabel}). Fasting starts in ${Math.round(hoursUntilFast * 10) / 10}h.`;
-    }
+      config.eatStartHour <= eatEnd
+        ? hour >= config.eatStartHour && hour < eatEnd
+        : hour >= config.eatStartHour || hour < eatEnd
 
     return {
       active: true,
-      fasting: fastingNow,
+      fasting: !inEatingWindow,
       inEatingWindow,
-      windowLabel,
+      windowLabel: `${config.fastHours}:${config.eatHours}`,
       eatStartHour: config.eatStartHour,
       eatEndHour: eatEnd,
-      message,
-    };
+      message: inEatingWindow
+        ? `Eating window open until ${eatEnd}:00`
+        : `Fasting — window opens at ${config.eatStartHour}:00`,
+    }
   }
 }

@@ -1,65 +1,56 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateSupplementDto } from './dto/create-supplement.dto';
-import { LogSupplementDto } from './dto/log-supplement.dto';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
+import { PrismaService } from '../prisma/prisma.service'
 
 @Injectable()
 export class SupplementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {}
 
   findAll(userId: string) {
     return this.prisma.supplement.findMany({
-      where: { userId },
-      orderBy: { name: 'asc' },
-    });
+      where:   { userId, active: true },
+      orderBy: { createdAt: 'asc' },
+    })
   }
 
-  create(userId: string, dto: CreateSupplementDto) {
-    return this.prisma.supplement.create({
-      data: { ...dto, userId },
-    });
+  create(userId: string, dto: any) {
+    return this.prisma.supplement.create({ data: { userId, ...dto } })
   }
 
-  async update(userId: string, id: string, dto: Partial<CreateSupplementDto>) {
-    await this.assertOwner(userId, id);
-    return this.prisma.supplement.update({ where: { id }, data: dto });
+  update(userId: string, id: string, dto: any) {
+    return this.prisma.supplement.update({ where: { id }, data: dto })
   }
 
   async remove(userId: string, id: string) {
-    await this.assertOwner(userId, id);
-    return this.prisma.supplement.delete({ where: { id } });
+    return this.prisma.supplement.delete({ where: { id } })
   }
 
-  logIntake(userId: string, dto: LogSupplementDto) {
+  async logIntake(userId: string, supplementId: string) {
     return this.prisma.supplementLog.create({
-      data: {
-        userId,
-        supplementId: dto.supplementId,
-        takenAt: dto.takenAt ? new Date(dto.takenAt) : new Date(),
-        notes: dto.notes,
-      },
-    });
+      data: { userId, supplementId },
+      include: { supplement: true },
+    })
   }
 
-  async todayLogs(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
+  getTodayLogs(userId: string) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     return this.prisma.supplementLog.findMany({
       where: {
         userId,
-        takenAt: { gte: today, lt: tomorrow },
+        takenAt: { gte: today },
       },
       include: { supplement: true },
-      orderBy: { takenAt: 'asc' },
-    });
+      orderBy: { takenAt: 'desc' },
+    })
   }
 
-  private async assertOwner(userId: string, id: string) {
-    const s = await this.prisma.supplement.findUnique({ where: { id } });
-    if (!s) throw new NotFoundException();
-    if (s.userId !== userId) throw new ForbiddenException();
+  async getCaffeineToday(userId: string): Promise<number> {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const logs = await this.prisma.supplementLog.findMany({
+      where:   { userId, takenAt: { gte: today } },
+      include: { supplement: true },
+    })
+    return logs.reduce((sum, l) => sum + (l.supplement.caffeinePerDoseMg ?? 0), 0)
   }
 }

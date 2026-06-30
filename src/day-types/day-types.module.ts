@@ -4,9 +4,9 @@ import { DayTypesService } from './day-types.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports:     [PrismaModule],
   controllers: [DayTypesController],
-  providers: [DayTypesService],
-  exports: [DayTypesService],
+  providers:   [DayTypesService],
+  exports:     [DayTypesService],   // exportado para DiaryModule y AuthService
 })
 export class DayTypesModule {}

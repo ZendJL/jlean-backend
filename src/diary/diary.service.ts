@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DayTypesService } from '../day-types/day-types.service';
 import { Meal } from '@prisma/client';
 
 interface AddItemDto {
@@ -23,7 +24,10 @@ interface UpdateItemDto {
 export class DiaryService {
   private readonly logger = new Logger(DiaryService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private dayTypes: DayTypesService,
+  ) {}
 
   async getLog(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
@@ -45,7 +49,7 @@ export class DiaryService {
     if (!dto.foodId && !dto.recipeId)
       throw new BadRequestException('Se requiere foodId o recipeId');
 
-    // B-04 FIX: verificar que la referencia existe antes de insertar
+    // B-04: verificar que la referencia existe antes de insertar
     if (dto.foodId) {
       const food = await this.prisma.food.findUnique({ where: { id: dto.foodId } });
       if (!food)
@@ -112,29 +116,40 @@ export class DiaryService {
     return { deleted: true };
   }
 
+  // Paso 3.4: getSummary ahora usa targets ajustados por DayType
   async getSummary(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
-    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+
+    // Obtener targets ajustados (considera tipo de día si hay uno asignado)
+    const adjusted = await this.dayTypes.getAdjustedTargets(userId, date);
+
     const log = await this.prisma.foodLog.findUnique({
-      where: { userId_date: { userId, date } },
+      where:   { userId_date: { userId, date } },
       include: this.logInclude(),
     });
 
     const consumed = this.calcConsumed(log?.items ?? []);
+    const targets  = adjusted.adjusted;
+
     return {
       date: date.toISOString().split('T')[0],
-      targets: {
-        calories: profile?.calorieTarget ?? 0,
-        protein:  profile?.proteinTarget ?? 0,
-        carbs:    profile?.carbTarget    ?? 0,
-        fat:      profile?.fatTarget     ?? 0,
-      },
+      // Targets ajustados al tipo de día (o base si no hay asignación)
+      targets,
+      // Contexto del ajuste para que el frontend muestre "Training Day +15%"
+      dayType: adjusted.dayType
+        ? {
+            name:          adjusted.dayType.name,
+            color:         adjusted.dayType.color,
+            tdeAdjustPct:  adjusted.dayType.tdeAdjustPct,
+            adjustFactor:  adjusted.factor,
+          }
+        : null,
       consumed,
       remaining: {
-        calories: this.round((profile?.calorieTarget ?? 0) - consumed.calories),
-        protein:  this.round((profile?.proteinTarget ?? 0) - consumed.protein),
-        carbs:    this.round((profile?.carbTarget    ?? 0) - consumed.carbs),
-        fat:      this.round((profile?.fatTarget     ?? 0) - consumed.fat),
+        calories: this.round(targets.calories - consumed.calories),
+        protein:  this.round(targets.protein  - consumed.protein),
+        carbs:    this.round(targets.carbs    - consumed.carbs),
+        fat:      this.round(targets.fat      - consumed.fat),
       },
     };
   }
@@ -220,7 +235,7 @@ export class DiaryService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  // B-03 FIX: validar que la fecha sea válida antes de usarla
+  // B-03: validar que la fecha sea válida antes de usarla
   private parseDate(dateStr?: string): Date {
     const d = dateStr ? new Date(dateStr) : new Date();
     if (isNaN(d.getTime()))
@@ -274,9 +289,6 @@ export class DiaryService {
     }
 
     if (item.recipe) {
-      // NOTA (B-12): quantityG para recetas se trata como número de porciones.
-      // La convención es: quantityG=1 → 1 porción completa de la receta.
-      // Si el frontend envía gramos, esto requiere revisión de la convención UI.
       const portions = item.quantityG;
       const servings = item.recipe.servings || 1;
       for (const ri of item.recipe.items ?? []) {

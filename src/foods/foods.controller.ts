@@ -8,6 +8,7 @@ import { JwtGuard } from '../auth/jwt.guard';
 export class FoodsController {
   constructor(private foods: FoodsService) {}
 
+  /** GET /foods/search?q=...&source=local|usda|off */
   @Get('search')
   search(
     @Query('q') q: string,
@@ -16,11 +17,19 @@ export class FoodsController {
     return this.foods.search(q, source);
   }
 
+  /** GET /foods/barcode/:code — lookup por código de barras (EAN/UPC) */
+  @Get('barcode/:code')
+  barcode(@Param('code') code: string) {
+    return this.foods.getByBarcode(code);
+  }
+
+  /** POST /foods/import — guardar alimento externo en DB local */
   @Post('import')
   import(@Body() dto: ImportFoodDto) {
     return this.foods.importFood(dto);
   }
 
+  /** GET /foods/:id */
   @Get(':id')
   getById(@Param('id') id: string) {
     return this.foods.getById(id);

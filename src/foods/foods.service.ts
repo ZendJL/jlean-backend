@@ -1,88 +1,87 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { FoodSource } from '@prisma/client'
-import { UsdaService } from './usda.service'
-import { OffService } from './off.service'
+import { ImportFoodDto } from './dto/import-food.dto'
 
 @Injectable()
 export class FoodsService {
-  constructor(
-    private prisma:   PrismaService,
-    private usda:     UsdaService,
-    private offSvc:   OffService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  // ─── Catálogo interno ────────────────────────────────────────────────────────
+  // ─── search ──────────────────────────────────────────────────────────────────
 
-  findAll(query?: string) {
+  async search(query: string, source: 'local' | 'usda' | 'off' = 'local') {
+    if (source === 'usda') return this.searchUsda(query)
+    if (source === 'off')  return this.searchOff(query)
+
+    // local: busca en catálogo propio (presets + custom)
     return this.prisma.food.findMany({
-      where: query ? { name: { contains: query, mode: 'insensitive' } } : undefined,
+      where:   { name: { contains: query, mode: 'insensitive' } },
       orderBy: { name: 'asc' },
-      take: 50,
+      take:    50,
     })
   }
 
-  findOne(id: string) {
-    return this.prisma.food.findUnique({ where: { id } })
+  // ─── getByBarcode ─────────────────────────────────────────────────────────
+
+  async getByBarcode(barcode: string) {
+    // 1. buscar en caché local
+    const cached = await this.prisma.food.findFirst({ where: { barcode } })
+    if (cached) return cached
+
+    // 2. fallback: consultar Open Food Facts
+    return this.importFromOff(barcode)
   }
 
-  create(dto: any) {
-    return this.prisma.food.create({ data: dto })
+  // ─── importFood ───────────────────────────────────────────────────────────
+
+  async importFood(dto: ImportFoodDto) {
+    if (dto.source === 'USDA' && dto.externalId) {
+      return this.importFromUsda(dto.externalId)
+    }
+    if (dto.source === 'OFF' && dto.externalId) {
+      return this.importFromOff(dto.externalId)
+    }
+    // custom food creation
+    return this.prisma.food.create({ data: { ...dto } as any })
   }
 
-  update(id: string, dto: any) {
-    return this.prisma.food.update({ where: { id }, data: dto })
+  // ─── getById ─────────────────────────────────────────────────────────────────
+
+  async getById(id: string) {
+    const food = await this.prisma.food.findUnique({ where: { id } })
+    if (!food) throw new NotFoundException(`Food ${id} not found`)
+    return food
   }
 
-  remove(id: string) {
-    return this.prisma.food.delete({ where: { id } })
+  // ─── USDA (stub — implementar en Fase 4.3) ──────────────────────────────────────────
+
+  private async searchUsda(query: string) {
+    // TODO Fase 4.3 — integrar USDA FoodData Central API
+    return []
   }
 
-  // ─── USDA ─────────────────────────────────────────────────────────────────────
-
-  async searchUsda(query: string) {
-    return this.usda.search(query)
-  }
-
-  async importUsda(fdcId: string) {
+  private async importFromUsda(fdcId: string) {
     const existing = await this.prisma.food.findFirst({
       where: { externalId: fdcId, source: FoodSource.USDA },
     })
     if (existing) return existing
-
-    const raw = await this.usda.getFood(fdcId)
-    return this.prisma.food.create({ data: this.usda.normalize(raw) })
+    // TODO Fase 4.3 — llamar USDA API y normalizar
+    throw new NotFoundException('USDA integration not yet implemented')
   }
 
-  // ─── Open Food Facts ─────────────────────────────────────────────────────────
+  // ─── Open Food Facts (stub — implementar en Fase 4.4) ───────────────────────────
 
-  async searchOff(query: string) {
-    return this.offSvc.search(query)
+  private async searchOff(query: string) {
+    // TODO Fase 4.4 — integrar Open Food Facts search
+    return []
   }
 
-  async importByBarcode(barcode: string) {
+  private async importFromOff(barcode: string) {
     const existing = await this.prisma.food.findFirst({
       where: { externalId: barcode, source: FoodSource.OFF },
     })
     if (existing) return existing
-
-    const raw = await this.offSvc.getByBarcode(barcode)
-    return this.prisma.food.create({
-      data: {
-        name:         raw.product_name ?? 'Unknown',
-        brand:        raw.brands       ?? null,
-        source:       FoodSource.OFF,
-        externalId:   barcode,
-        barcode,
-        servingSizeG: raw.serving_size_imported ?? 100,
-        calories:     raw.nutriments?.['energy-kcal_100g'] ?? 0,
-        protein:      raw.nutriments?.proteins_100g        ?? 0,
-        carbs:        raw.nutriments?.carbohydrates_100g   ?? 0,
-        fat:          raw.nutriments?.fat_100g             ?? 0,
-        fiber:        raw.nutriments?.fiber_100g           ?? null,
-        sugar:        raw.nutriments?.sugars_100g          ?? null,
-        sodium:       raw.nutriments?.sodium_100g          ?? null,
-      },
-    })
+    // TODO Fase 4.4 — llamar OFF API por barcode
+    throw new NotFoundException('Open Food Facts integration not yet implemented')
   }
 }

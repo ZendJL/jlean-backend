@@ -1,40 +1,36 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional, IsEnum, Min } from 'class-validator';
-import { FoodSource } from '@prisma/client';
+import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator'
+
+export enum ImportSource {
+  USDA   = 'USDA',
+  OFF    = 'OFF',
+  CUSTOM = 'CUSTOM',
+}
 
 export class ImportFoodDto {
-  @IsString()
-  @IsNotEmpty()
-  externalId: string;
-
-  @IsEnum(FoodSource, { message: 'source debe ser USDA, OFF o CUSTOM' })
-  source: FoodSource;
-
-  @IsString()
-  @IsNotEmpty({ message: 'El nombre es obligatorio' })
-  name: string;
+  @IsEnum(ImportSource)
+  source: ImportSource
 
   @IsOptional()
   @IsString()
-  brand?: string;
+  externalId?: string
 
-  @IsNumber()
-  @Min(0)
-  calories: number;
-
-  @IsNumber()
-  @Min(0)
-  protein: number;
-
-  @IsNumber()
-  @Min(0)
-  carbs: number;
-
-  @IsNumber()
-  @Min(0)
-  fat: number;
+  @IsOptional()
+  @IsString()
+  name?: string
 
   @IsOptional()
   @IsNumber()
-  @Min(1)
-  servingSizeG?: number;
+  calories?: number
+
+  @IsOptional()
+  @IsNumber()
+  protein?: number
+
+  @IsOptional()
+  @IsNumber()
+  carbs?: number
+
+  @IsOptional()
+  @IsNumber()
+  fat?: number
 }

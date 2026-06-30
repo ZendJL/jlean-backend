@@ -17,7 +17,7 @@ export class FoodsService {
     private prisma: PrismaService,
   ) {}
 
-  // ─── Search ──────────────────────────────────────────────────────────────
+  // ─── Search ───────────────────────────────────────────────────────────────
 
   async search(q: string, source: 'local' | 'usda' | 'off' = 'local') {
     if (source === 'usda') return this.searchUsda(q);
@@ -60,12 +60,12 @@ export class FoodsService {
     return (data.products ?? []).map((p: any) => this.mapOffProduct(p));
   }
 
-  // ─── Barcode ─────────────────────────────────────────────────────────────
+  // ─── Barcode ──────────────────────────────────────────────────────────────
 
   async getByBarcode(barcode: string) {
-    // 1. Buscar primero en DB local por externalId
+    // 1. Buscar primero en DB local
     const cached = await this.prisma.food.findFirst({
-      where: { externalId: barcode, source: FoodSource.OFF },
+      where: { externalId: barcode, source: FoodSource.OPEN_FOOD_FACTS },
     });
     if (cached) return cached;
 
@@ -89,7 +89,7 @@ export class FoodsService {
     return this.mapOffProduct({ ...data.product, id: barcode });
   }
 
-  // ─── Import ──────────────────────────────────────────────────────────────
+  // ─── Import ───────────────────────────────────────────────────────────────
 
   async importFood(dto: {
     externalId:   string;
@@ -128,12 +128,12 @@ export class FoodsService {
     return food;
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────────────────
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
   private mapOffProduct(p: any) {
     return {
       externalId:   String(p.id ?? p._id ?? ''),
-      source:       FoodSource.OFF,
+      source:       FoodSource.OPEN_FOOD_FACTS,
       name:         p.product_name ?? p.product_name_en ?? 'Unknown',
       brand:        p.brands ?? null,
       calories:     this.round(p.nutriments?.['energy-kcal_100g'] ?? 0),

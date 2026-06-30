@@ -7,17 +7,25 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, {
-    // Usar logger de NestJS (JSON-ready en producción)
     logger: ['log', 'warn', 'error', 'debug'],
+  });
+
+  // CORS — permite requests desde el frontend
+  const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
+  app.enableCors({
+    origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:3001'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
   });
 
   // Global pipes — validación DTO
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist:               true,
-      forbidNonWhitelisted:    true,
-      transform:               true,
-      transformOptions:        { enableImplicitConversion: true },
+      whitelist:            true,
+      forbidNonWhitelisted: true,
+      transform:            true,
+      transformOptions:     { enableImplicitConversion: true },
     }),
   );
 

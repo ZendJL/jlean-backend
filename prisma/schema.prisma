@@ -17,6 +17,9 @@ model User {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   profile       Profile?
+  userGoals     UserGoal[]
+  dayTypes      DayType[]
+  assignedDays  DayAssignment[]
   recipes       Recipe[]
   foodLogs      FoodLog[]
   refreshTokens RefreshToken[]
@@ -75,6 +78,60 @@ enum Goal {
   LOSE
   MAINTAIN
   GAIN
+}
+
+// ─── Goal History ─────────────────────────────────────────────────────────────
+// Cada vez que el usuario cambia sus metas se crea un registro nuevo.
+// effectiveTo = null significa que es el registro activo.
+
+model UserGoal {
+  id            String    @id @default(uuid())
+  userId        String
+  calorieTarget Int
+  proteinTarget Float
+  carbTarget    Float
+  fatTarget     Float
+  goal          Goal
+  activityLevel ActivityLevel
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, effectiveFrom])
+  @@map("user_goals")
+}
+
+// ─── Day Types ────────────────────────────────────────────────────────────────
+// Tipos de día configurables por el usuario. tdeAdjustPct ajusta el TDEE.
+// Ej: Rest = -15, Training = +15, Race = +35, Fasting = -40, Refeed = +15
+
+model DayType {
+  id              String          @id @default(uuid())
+  userId          String
+  name            String          // "Rest Day", "Training", "Race", etc.
+  tdeAdjustPct    Float           @default(0) // porcentaje de ajuste sobre el TDEE base
+  color           String?         // color HEX para UI
+  isDefault       Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments     DayAssignment[]
+  @@unique([userId, name])
+  @@map("day_types")
+}
+
+// Asignación de un tipo de día a una fecha concreta
+model DayAssignment {
+  id         String   @id @default(uuid())
+  userId     String
+  dayTypeId  String
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayType    DayType  @relation(fields: [dayTypeId], references: [id], onDelete: Cascade)
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("day_assignments")
 }
 
 // ─── Foods ────────────────────────────────────────────────────────────────────

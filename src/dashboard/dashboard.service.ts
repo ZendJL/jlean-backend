@@ -33,6 +33,15 @@ export class DashboardService {
     })
 
     const items = log?.items ?? []
+
+    // Group items by mealType so the frontend can render meals["BREAKFAST"], etc.
+    const meals: Record<string, typeof items> = {}
+    for (const item of items) {
+      const key = item.mealType ?? 'UNCATEGORIZED'
+      if (!meals[key]) meals[key] = []
+      meals[key].push(item)
+    }
+
     const consumed = items.reduce(
       (acc, item) => ({
         calories: acc.calories + (item.snapshotCalories ?? 0),
@@ -57,7 +66,7 @@ export class DashboardService {
       fat:      targets.fat      - consumed.fat,
     }
 
-    const takenIds       = new Set(supplementLogs.map(l => l.supplementId))
+    const takenIds           = new Set(supplementLogs.map(l => l.supplementId))
     const pendingSupplements = supplements.filter(s => !takenIds.has(s.id))
 
     let fastingStatus: Record<string, unknown> | null = null
@@ -82,6 +91,17 @@ export class DashboardService {
       }
     }
 
-    return { date: today, targets, consumed, remaining, logItems: items, pendingSupplements, takenSupplements: supplementLogs, fastingStatus, lastSleep }
+    return {
+      date: today,
+      targets,
+      consumed,
+      remaining,
+      meals,          // { BREAKFAST: [...], LUNCH: [...], ... }
+      logItems: items, // flat array kept for backwards compat
+      pendingSupplements,
+      takenSupplements: supplementLogs,
+      fastingStatus,
+      lastSleep,
+    }
   }
 }

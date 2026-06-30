@@ -1,5 +1,5 @@
 /**
- * Cliente USDA FoodData Central — Paso 4.3
+ * Cliente USDA FoodData Central — Paso 4.3 (con ExternalApiMonitorService)
  * Documentación: https://api.nal.usda.gov/fdc/v1
  * Rate limit: 1,000 req/hora/IP — exponemos headers x-ratelimit-* al caller.
  */
@@ -10,6 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ExternalApiMonitorService } from '../common/services/external-api-monitor.service';
 
 export interface UsdaFood {
   fdcId: number;
@@ -29,7 +30,6 @@ export interface UsdaFood {
 }
 
 // Caché en memoria simple (clave → { data, expiresAt })
-// Para producción se reemplazaría por Redis.
 const cache = new Map<string, { data: unknown; expiresAt: number }>();
 const TTL_MS = 60 * 60 * 1000; // 1 hora
 
@@ -50,7 +50,10 @@ export class UsdaClient {
   private readonly apiKey: string;
   private readonly baseUrl = 'https://api.nal.usda.gov/fdc/v1';
 
-  constructor(private config: ConfigService) {
+  constructor(
+    private config: ConfigService,
+    private monitor: ExternalApiMonitorService,
+  ) {
     this.apiKey = this.config.get<string>('USDA_API_KEY', 'DEMO_KEY');
   }
 
@@ -63,7 +66,7 @@ export class UsdaClient {
 
     const url = `${this.baseUrl}/foods/search?api_key=${this.apiKey}&query=${encodeURIComponent(query)}&pageSize=${pageSize}&dataType=Foundation,SR%20Legacy,Branded`;
 
-    const result = await this.fetchWithRateLimit<any>(url);
+    const result = await this.fetchWithRateLimit<any>(url, 'search');
     if (!result) return [];
 
     const normalized = (result.foods ?? []).map((f: any) => this.normalizeSearchItem(f));
@@ -79,7 +82,7 @@ export class UsdaClient {
     if (cached) return cached;
 
     const url = `${this.baseUrl}/food/${fdcId}?api_key=${this.apiKey}`;
-    const result = await this.fetchWithRateLimit<any>(url);
+    const result = await this.fetchWithRateLimit<any>(url, `detail/${fdcId}`);
     if (!result) return null;
 
     const normalized = this.normalizeDetail(result);
@@ -87,21 +90,31 @@ export class UsdaClient {
     return normalized;
   }
 
-  // ─── HTTP con manejo de 429 ──────────────────────────────────────────────
+  // ─── HTTP con manejo de 429 y telemetría ─────────────────────────────────
 
-  private async fetchWithRateLimit<T>(url: string): Promise<T | null> {
+  private async fetchWithRateLimit<T>(url: string, endpoint: string): Promise<T | null> {
+    const startedAt = Date.now();
     let res: Response;
+
     try {
       res = await fetch(url, {
         headers: { 'User-Agent': 'JLean/1.0 (nutrition app; contact juanluislpz17@gmail.com)' },
       });
     } catch (err) {
+      this.monitor.record({
+        source: 'USDA', endpoint, success: false,
+        durationMs: Date.now() - startedAt, rateLimited: false,
+      });
       this.logger.error(`USDA fetch error: ${err}`);
       return null;
     }
 
     if (res.status === 429) {
       const retryAfter = res.headers.get('Retry-After') ?? '60';
+      this.monitor.record({
+        source: 'USDA', endpoint, success: false, statusCode: 429,
+        durationMs: Date.now() - startedAt, rateLimited: true,
+      });
       this.logger.warn(`USDA rate limit hit. Retry-After: ${retryAfter}s`);
       throw new HttpException(
         {
@@ -114,9 +127,18 @@ export class UsdaClient {
     }
 
     if (!res.ok) {
+      this.monitor.record({
+        source: 'USDA', endpoint, success: false, statusCode: res.status,
+        durationMs: Date.now() - startedAt, rateLimited: false,
+      });
       this.logger.error(`USDA error ${res.status} for URL: ${url}`);
       return null;
     }
+
+    this.monitor.record({
+      source: 'USDA', endpoint, success: true, statusCode: res.status,
+      durationMs: Date.now() - startedAt, rateLimited: false,
+    });
 
     return res.json() as Promise<T>;
   }
@@ -130,22 +152,20 @@ export class UsdaClient {
 
   private normalizeSearchItem(f: any): UsdaFood {
     const nn = f.foodNutrients ?? [];
-    // nutrientIds USDA estándar: 1008=energy, 1003=protein, 1005=carbs, 1004=fat,
-    // 1079=fiber, 2000=sugar, 1093=sodium, 1258=sat.fat, 1057=caffeine
     return {
-      fdcId:          f.fdcId,
-      description:    f.description,
-      brandOwner:     f.brandOwner,
-      calories:       this.getNutrientValue(nn, 1008),
-      protein:        this.getNutrientValue(nn, 1003),
-      carbs:          this.getNutrientValue(nn, 1005),
-      fat:            this.getNutrientValue(nn, 1004),
-      fiber:          this.getNutrientValue(nn, 1079) || undefined,
-      sugar:          this.getNutrientValue(nn, 2000) || undefined,
-      sodium:         this.getNutrientValue(nn, 1093) || undefined,
-      saturatedFat:   this.getNutrientValue(nn, 1258) || undefined,
-      caffeineMg:     this.getNutrientValue(nn, 1057) || undefined,
-      servingSize:    f.servingSize,
+      fdcId:           f.fdcId,
+      description:     f.description,
+      brandOwner:      f.brandOwner,
+      calories:        this.getNutrientValue(nn, 1008),
+      protein:         this.getNutrientValue(nn, 1003),
+      carbs:           this.getNutrientValue(nn, 1005),
+      fat:             this.getNutrientValue(nn, 1004),
+      fiber:           this.getNutrientValue(nn, 1079) || undefined,
+      sugar:           this.getNutrientValue(nn, 2000) || undefined,
+      sodium:          this.getNutrientValue(nn, 1093) || undefined,
+      saturatedFat:    this.getNutrientValue(nn, 1258) || undefined,
+      caffeineMg:      this.getNutrientValue(nn, 1057) || undefined,
+      servingSize:     f.servingSize,
       servingSizeUnit: f.servingSizeUnit,
     };
   }
@@ -157,19 +177,19 @@ export class UsdaClient {
       return n ? (n.amount ?? 0) : 0;
     };
     return {
-      fdcId:          f.fdcId,
-      description:    f.description,
-      brandOwner:     f.brandOwner,
-      calories:       getVal(1008),
-      protein:        getVal(1003),
-      carbs:          getVal(1005),
-      fat:            getVal(1004),
-      fiber:          getVal(1079) || undefined,
-      sugar:          getVal(2000) || undefined,
-      sodium:         getVal(1093) || undefined,
-      saturatedFat:   getVal(1258) || undefined,
-      caffeineMg:     getVal(1057) || undefined,
-      servingSize:    f.servingSize,
+      fdcId:           f.fdcId,
+      description:     f.description,
+      brandOwner:      f.brandOwner,
+      calories:        getVal(1008),
+      protein:         getVal(1003),
+      carbs:           getVal(1005),
+      fat:             getVal(1004),
+      fiber:           getVal(1079) || undefined,
+      sugar:           getVal(2000) || undefined,
+      sodium:          getVal(1093) || undefined,
+      saturatedFat:    getVal(1258) || undefined,
+      caffeineMg:      getVal(1057) || undefined,
+      servingSize:     f.servingSize,
       servingSizeUnit: f.servingSizeUnit,
     };
   }

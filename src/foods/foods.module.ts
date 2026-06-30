@@ -13,3 +13,4 @@ import { ConfigModule } from '@nestjs/config';
   exports: [FoodsService],
 })
 export class FoodsModule {}
+// ExternalApiMonitorService es @Global() — ya disponible sin importarlo

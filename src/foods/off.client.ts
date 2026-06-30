@@ -1,10 +1,16 @@
 /**
- * Cliente Open Food Facts — Paso 4.4
- * Documentación: https://world.openfoodfacts.org/data
- * Rate limit: ~15 req/min (lectura), ~10 req/min (búsqueda).
- * NO usar search-as-you-type — usar solo por barcode o búsqueda manual.
+ * Cliente Open Food Facts — Paso 4.4 (con ExternalApiMonitorService)
+ * Rate limit: ~15 req/min lectura, ~10 req/min búsqueda.
+ * NO usar search-as-you-type. User-Agent requerido.
  */
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
+import { ExternalApiMonitorService } from '../common/services/external-api-monitor.service';
 
 export type OffQuality = 'COMPLETE' | 'PARTIAL' | 'UNVERIFIED' | 'CONFLICTED';
 
@@ -24,9 +30,12 @@ export interface OffFood {
   qualityStatus: OffQuality;
 }
 
-// Caché en memoria simple
+const USER_AGENT = 'JLean/1.0 (nutrition tracker; juanluislpz17@gmail.com)';
+const BASE_URL   = 'https://world.openfoodfacts.org';
+
+// Caché en memoria (TTL 30 min para OFF — los datos cambian más frecuentemente)
 const cache = new Map<string, { data: unknown; expiresAt: number }>();
-const TTL_MS = 30 * 60 * 1000; // 30 min
+const TTL_MS = 30 * 60 * 1000;
 
 function fromCache<T>(key: string): T | null {
   const entry = cache.get(key);
@@ -34,6 +43,7 @@ function fromCache<T>(key: string): T | null {
   if (Date.now() > entry.expiresAt) { cache.delete(key); return null; }
   return entry.data as T;
 }
+
 function toCache(key: string, data: unknown) {
   cache.set(key, { data, expiresAt: Date.now() + TTL_MS });
 }
@@ -41,142 +51,140 @@ function toCache(key: string, data: unknown) {
 @Injectable()
 export class OffClient {
   private readonly logger = new Logger(OffClient.name);
-  private readonly baseUrl = 'https://world.openfoodfacts.org';
-  private readonly userAgent = 'JLean/1.0 (nutrition web app; contact juanluislpz17@gmail.com)';
 
-  // ─── Por barcode ─────────────────────────────────────────────────────────
+  constructor(private monitor: ExternalApiMonitorService) {}
+
+  // ─── Por barcode (lookup directo) ───────────────────────────────────────
 
   async getByBarcode(barcode: string): Promise<OffFood | null> {
     const cacheKey = `barcode:${barcode}`;
     const cached = fromCache<OffFood>(cacheKey);
     if (cached) return cached;
 
-    const url = `${this.baseUrl}/api/v3/product/${barcode}.json`;
-    const raw = await this.fetchWithRetry<any>(url);
-    if (!raw || raw.status === 0) return null;
+    const startedAt = Date.now();
+    const url = `${BASE_URL}/api/v3/product/${barcode}.json`;
 
-    const normalized = this.normalize(raw.product);
-    if (!normalized) return null;
-    toCache(cacheKey, normalized);
-    return normalized;
-  }
-
-  // ─── Búsqueda manual (NO as-you-type) ───────────────────────────────────
-
-  async search(query: string, page = 1): Promise<OffFood[]> {
-    const cacheKey = `search:${query}:${page}`;
-    const cached = fromCache<OffFood[]>(cacheKey);
-    if (cached) return cached;
-
-    const url = `${this.baseUrl}/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=20&page=${page}`;
-    const raw = await this.fetchWithRetry<any>(url);
-    if (!raw || !raw.products) return [];
-
-    const normalized = raw.products
-      .map((p: any) => this.normalize(p))
-      .filter(Boolean) as OffFood[];
-
-    toCache(cacheKey, normalized);
-    return normalized;
-  }
-
-  // ─── HTTP con manejo de errores ──────────────────────────────────────────
-
-  private async fetchWithRetry<T>(url: string): Promise<T | null> {
     let res: Response;
     try {
-      res = await fetch(url, {
-        headers: { 'User-Agent': this.userAgent },
-      });
+      res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
     } catch (err) {
+      this.monitor.record({ source: 'OFF', endpoint: `product/${barcode}`, success: false, durationMs: Date.now() - startedAt, rateLimited: false });
       this.logger.error(`OFF fetch error: ${err}`);
-      return null; // falla silenciosa — el caller usa catálogo local como fallback
+      return null;
     }
 
     if (res.status === 429) {
-      this.logger.warn('OFF rate limit hit');
+      const retryAfter = res.headers.get('Retry-After') ?? '60';
+      this.monitor.record({ source: 'OFF', endpoint: `product/${barcode}`, success: false, statusCode: 429, durationMs: Date.now() - startedAt, rateLimited: true });
       throw new HttpException(
-        {
-          message: 'Open Food Facts rate limit reached. Please try again shortly.',
-          retryAfterSeconds: 10,
-          source: 'OFF',
-        },
+        { message: 'Open Food Facts rate limit reached. Try again shortly.', retryAfterSeconds: parseInt(retryAfter, 10), source: 'OFF' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (res.status === 404 || !res.ok) {
+      this.monitor.record({ source: 'OFF', endpoint: `product/${barcode}`, success: false, statusCode: res.status, durationMs: Date.now() - startedAt, rateLimited: false });
+      return null;
+    }
+
+    const json = await res.json() as any;
+    this.monitor.record({ source: 'OFF', endpoint: `product/${barcode}`, success: true, statusCode: res.status, durationMs: Date.now() - startedAt, rateLimited: false });
+
+    if (json.status === 0 || !json.product) throw new NotFoundException(`Product ${barcode} not found in Open Food Facts`);
+
+    const food = this.normalizeProduct(json.product);
+    toCache(cacheKey, food);
+    return food;
+  }
+
+  // ─── Búsqueda manual (NO as-you-type) ────────────────────────────────────
+
+  async search(query: string, page = 1, pageSize = 20): Promise<OffFood[]> {
+    const cacheKey = `search:${query}:${page}:${pageSize}`;
+    const cached = fromCache<OffFood[]>(cacheKey);
+    if (cached) return cached;
+
+    const startedAt = Date.now();
+    const url = `${BASE_URL}/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page=${page}&page_size=${pageSize}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    } catch (err) {
+      this.monitor.record({ source: 'OFF', endpoint: 'search', success: false, durationMs: Date.now() - startedAt, rateLimited: false });
+      this.logger.error(`OFF search error: ${err}`);
+      return [];
+    }
+
+    if (res.status === 429) {
+      const retryAfter = res.headers.get('Retry-After') ?? '60';
+      this.monitor.record({ source: 'OFF', endpoint: 'search', success: false, statusCode: 429, durationMs: Date.now() - startedAt, rateLimited: true });
+      throw new HttpException(
+        { message: 'Open Food Facts rate limit reached. Try again shortly.', retryAfterSeconds: parseInt(retryAfter, 10), source: 'OFF' },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
     if (!res.ok) {
-      this.logger.error(`OFF error ${res.status}`);
-      return null;
+      this.monitor.record({ source: 'OFF', endpoint: 'search', success: false, statusCode: res.status, durationMs: Date.now() - startedAt, rateLimited: false });
+      return [];
     }
 
-    return res.json() as Promise<T>;
+    const json = await res.json() as any;
+    this.monitor.record({ source: 'OFF', endpoint: 'search', success: true, statusCode: res.status, durationMs: Date.now() - startedAt, rateLimited: false });
+
+    const results = (json.products ?? []).map((p: any) => this.normalizeProduct(p));
+    toCache(cacheKey, results);
+    return results;
   }
 
-  // ─── Normalización + evaluación de calidad ───────────────────────────────
+  // ─── Normalizador ────────────────────────────────────────────────────────
 
-  private normalize(p: any): OffFood | null {
-    if (!p) return null;
-
+  private normalizeProduct(p: any): OffFood {
     const n = p.nutriments ?? {};
-    const per100 = (key: string) => {
-      // OFF expone _100g y _serving — preferimos _100g para consistencia
-      return n[`${key}_100g`] ?? n[key] ?? 0;
-    };
-
-    const calories    = per100('energy-kcal');
-    const protein     = per100('proteins');
-    const carbs       = per100('carbohydrates');
-    const fat         = per100('fat');
-    const fiber       = per100('fiber') || undefined;
-    const sugar       = per100('sugars') || undefined;
-    const sodium      = per100('sodium') ? per100('sodium') * 1000 : undefined; // OFF da sodio en g, convertir a mg
-    const saturatedFat = per100('saturated-fat') || undefined;
-    const servingSizeG = parseFloat(p.serving_size) || 100;
-
-    const qualityStatus = this.evaluateQuality(p, { calories, protein, carbs, fat });
-
+    const qualityStatus = this.evaluateQuality(n, p.product_name ?? '');
     return {
       barcode:      p.code ?? p._id,
-      name:         p.product_name ?? p.generic_name ?? 'Unknown',
+      name:         p.product_name ?? p.product_name_en ?? 'Unknown product',
       brand:        p.brands,
-      servingSizeG,
-      calories,
-      protein,
-      carbs,
-      fat,
-      fiber,
-      sugar,
-      sodium,
-      saturatedFat,
+      servingSizeG: parseFloat(p.serving_size) || 100,
+      calories:     n['energy-kcal_100g']     ?? n['energy-kcal'] ?? 0,
+      protein:      n['proteins_100g']         ?? 0,
+      carbs:        n['carbohydrates_100g']     ?? 0,
+      fat:          n['fat_100g']               ?? 0,
+      fiber:        n['fiber_100g']             ?? undefined,
+      sugar:        n['sugars_100g']            ?? undefined,
+      sodium:       n['sodium_100g'] != null ? n['sodium_100g'] * 1000 : undefined, // g→mg
+      saturatedFat: n['saturated-fat_100g']     ?? undefined,
       qualityStatus,
     };
   }
 
   /**
-   * Reglas de calidad de datos (OFF es user-contributed):
-   * COMPLETE     — todos los macros presentes y calorías consistentes con macros
-   * PARTIAL      — faltan micros pero macros OK
-   * UNVERIFIED   — hay campos vacíos o inconsistencias leves
-   * CONFLICTED   — calorías declaradas difieren >15% de las calculadas por macros
+   * Evalúa la calidad de los datos OFF:
+   * COMPLETE   — macros + micros presentes y consistentes
+   * PARTIAL    — macros OK pero faltan micros (fibra, sodio)
+   * UNVERIFIED — datos incompletos o cero en macros clave
+   * CONFLICTED — discrepancia >15% entre kcal declaradas y calculadas
    */
-  private evaluateQuality(
-    p: any,
-    { calories, protein, carbs, fat }: { calories: number; protein: number; carbs: number; fat: number },
-  ): OffQuality {
-    // Si faltan macros básicos → UNVERIFIED
+  evaluateQuality(nutriments: Record<string, number>, productName: string): OffQuality {
+    const calories = nutriments['energy-kcal_100g'] ?? 0;
+    const protein  = nutriments['proteins_100g']    ?? 0;
+    const carbs    = nutriments['carbohydrates_100g'] ?? 0;
+    const fat      = nutriments['fat_100g']          ?? 0;
+
     if (!calories || (!protein && !carbs && !fat)) return 'UNVERIFIED';
 
-    // Verificar consistencia calorías vs macros (proteína×4 + carbs×4 + grasa×9)
     const calculated = protein * 4 + carbs * 4 + fat * 9;
     if (calculated > 0) {
       const diff = Math.abs(calories - calculated) / calculated;
-      if (diff > 0.15) return 'CONFLICTED'; // diferencia >15%
+      if (diff > 0.15) {
+        this.logger.warn(`OFF CONFLICTED: ${productName} — declared ${calories} kcal, calculated ${calculated.toFixed(1)} kcal`);
+        return 'CONFLICTED';
+      }
     }
 
-    // Si faltan micros (fibra, sodio) → PARTIAL, pero macros OK
-    const n = p.nutriments ?? {};
-    const hasMicros = n['fiber_100g'] != null || n['sodium_100g'] != null;
+    const hasMicros = nutriments['fiber_100g'] != null || nutriments['sodium_100g'] != null;
     if (!hasMicros) return 'PARTIAL';
 
     return 'COMPLETE';

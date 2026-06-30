@@ -1,18 +1,19 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
 import { ProfileModule } from './profile/profile.module';
 import { FoodsModule } from './foods/foods.module';
-import { DiaryModule } from './diary/diary.module';
 import { RecipesModule } from './recipes/recipes.module';
-import { DashboardModule } from './dashboard/dashboard.module';
+import { DiaryModule } from './diary/diary.module';
+import { DayTypesModule } from './day-types/day-types.module';
 import { SupplementsModule } from './supplements/supplements.module';
 import { SleepModule } from './sleep/sleep.module';
 import { FastingModule } from './fasting/fasting.module';
-import { DayTypesModule } from './day-types/day-types.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -20,16 +21,17 @@ import { DayTypesModule } from './day-types/day-types.module';
     PrismaModule,
     CommonModule,
     AuthModule,
-    UsersModule,
     ProfileModule,
     FoodsModule,
-    DiaryModule,
     RecipesModule,
-    DashboardModule,
+    DiaryModule,
+    DayTypesModule,
     SupplementsModule,
     SleepModule,
     FastingModule,
-    DayTypesModule,
+    DashboardModule,
   ],
+  controllers: [AppController],
+  providers:   [AppService],
 })
 export class AppModule {}

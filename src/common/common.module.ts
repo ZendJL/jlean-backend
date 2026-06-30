@@ -1,9 +1,9 @@
 import { Module, Global } from '@nestjs/common';
-import { RateLimitFallbackGuard } from './guards/rate-limit-fallback.guard';
+import { ExternalApiMonitorService } from './services/external-api-monitor.service';
 
 @Global()
 @Module({
-  providers: [RateLimitFallbackGuard],
-  exports:   [RateLimitFallbackGuard],
+  providers: [ExternalApiMonitorService],
+  exports:   [ExternalApiMonitorService],
 })
 export class CommonModule {}

@@ -1,15 +1,18 @@
 /**
  * Seed de presets básicos — Paso 4.1
- * Ejecutar: npx prisma db seed
- * (agregar en package.json: "prisma": { "seed": "ts-node prisma/seed.ts" })
+ * Ejecutar: npx ts-node prisma/seed.ts
  *
  * Presets cubiertos: proteínas animales, granos, lácteos, frutas/verduras,
  * suplementos deportivos. Macros por 100g salvo indicación.
  * Fuente de referencia: USDA FoodData Central.
  */
+import 'dotenv/config';
 import { PrismaClient, FoodSource, DataQuality } from '@prisma/client';
 
-const prisma = new PrismaClient();
+// Prisma v7 requiere datasourceUrl explícito fuera del contexto DI de NestJS
+const prisma = new PrismaClient({
+  datasourceUrl: process.env.DATABASE_URL,
+});
 
 const PRESETS: Array<{
   name: string;

@@ -111,6 +111,87 @@ export class DiaryService {
     };
   }
 
+  async getHistory(userId: string, from?: string, to?: string) {
+    const toDate   = this.parseDate(to);
+    const fromDate = from
+      ? this.parseDate(from)
+      : new Date(toDate.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+    if (fromDate > toDate)
+      throw new BadRequestException('from debe ser anterior a to');
+
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+
+    const logs = await this.prisma.foodLog.findMany({
+      where: {
+        userId,
+        date: { gte: fromDate, lte: toDate },
+      },
+      include: this.logInclude(),
+      orderBy: { date: 'asc' },
+    });
+
+    const logMap = new Map(
+      logs.map((l) => [l.date.toISOString().split('T')[0], l]),
+    );
+
+    const days: any[] = [];
+    const cursor = new Date(fromDate);
+
+    while (cursor <= toDate) {
+      const key = cursor.toISOString().split('T')[0];
+      const log = logMap.get(key);
+      const consumed = log
+        ? this.calcConsumed(log.items)
+        : { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
+      days.push({
+        date: key,
+        consumed,
+        target: profile?.calorieTarget ?? 0,
+        adherence: profile?.calorieTarget
+          ? Math.min(100, this.round((consumed.calories / profile.calorieTarget) * 100))
+          : null,
+      });
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const totals = days.reduce(
+      (acc, d) => ({
+        calories: this.round(acc.calories + d.consumed.calories),
+        protein:  this.round(acc.protein  + d.consumed.protein),
+        carbs:    this.round(acc.carbs    + d.consumed.carbs),
+        fat:      this.round(acc.fat      + d.consumed.fat),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    );
+
+    const count = days.length;
+    const averages = {
+      calories: this.round(totals.calories / count),
+      protein:  this.round(totals.protein  / count),
+      carbs:    this.round(totals.carbs    / count),
+      fat:      this.round(totals.fat      / count),
+    };
+
+    return {
+      from:     fromDate.toISOString().split('T')[0],
+      to:       toDate.toISOString().split('T')[0],
+      days,
+      totals,
+      averages,
+      targets: {
+        calories: profile?.calorieTarget ?? 0,
+        protein:  profile?.proteinTarget ?? 0,
+        carbs:    profile?.carbTarget    ?? 0,
+        fat:      profile?.fatTarget     ?? 0,
+      },
+    };
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
   private parseDate(dateStr?: string): Date {
     const d = dateStr ? new Date(dateStr) : new Date();
     d.setHours(0, 0, 0, 0);

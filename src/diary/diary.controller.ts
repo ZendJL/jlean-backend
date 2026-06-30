@@ -5,6 +5,7 @@ import {
 import { DiaryService } from './diary.service';
 import { AddDiaryItemDto } from './dto/add-item.dto';
 import { UpdateDiaryItemDto } from './dto/update-item.dto';
+import { HistoryQueryDto } from './dto/history-query.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('diary')
@@ -12,14 +13,22 @@ import { JwtGuard } from '../auth/jwt.guard';
 export class DiaryController {
   constructor(private diary: DiaryService) {}
 
+  /** GET /diary?date=YYYY-MM-DD */
   @Get()
   getLog(@Request() req: any, @Query('date') date?: string) {
     return this.diary.getLog(req.user.id, date);
   }
 
+  /** GET /diary/summary?date=YYYY-MM-DD */
   @Get('summary')
   getSummary(@Request() req: any, @Query('date') date?: string) {
     return this.diary.getSummary(req.user.id, date);
+  }
+
+  /** GET /diary/history?from=YYYY-MM-DD&to=YYYY-MM-DD */
+  @Get('history')
+  getHistory(@Request() req: any, @Query() query: HistoryQueryDto) {
+    return this.diary.getHistory(req.user.id, query.from, query.to);
   }
 
   @Post('items')

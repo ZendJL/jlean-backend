@@ -1,0 +1,78 @@
+import { FoodsService } from './foods.service';
+import { ImportFoodDto } from './dto/import-food.dto';
+export declare class FoodsController {
+    private foods;
+    constructor(foods: FoodsService);
+    search(q: string, source?: 'local' | 'usda' | 'off'): Promise<any>;
+    barcode(code: string): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        brand: string | null;
+        source: import("@prisma/client").$Enums.FoodSource;
+        externalId: string | null;
+        barcode: string | null;
+        servingSizeG: number;
+        servingUnit: string;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        fiber: number | null;
+        sugar: number | null;
+        sodium: number | null;
+        saturatedFat: number | null;
+    } | {
+        externalId: string;
+        source: "OPEN_FOOD_FACTS";
+        name: any;
+        brand: any;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        servingSizeG: number;
+        imageUrl: any;
+    }>;
+    import(dto: ImportFoodDto): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        brand: string | null;
+        source: import("@prisma/client").$Enums.FoodSource;
+        externalId: string | null;
+        barcode: string | null;
+        servingSizeG: number;
+        servingUnit: string;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        fiber: number | null;
+        sugar: number | null;
+        sodium: number | null;
+        saturatedFat: number | null;
+    }>;
+    getById(id: string): Promise<{
+        id: string;
+        name: string;
+        createdAt: Date;
+        updatedAt: Date;
+        brand: string | null;
+        source: import("@prisma/client").$Enums.FoodSource;
+        externalId: string | null;
+        barcode: string | null;
+        servingSizeG: number;
+        servingUnit: string;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        fiber: number | null;
+        sugar: number | null;
+        sodium: number | null;
+        saturatedFat: number | null;
+    }>;
+}

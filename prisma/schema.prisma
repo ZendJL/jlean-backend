@@ -1,0 +1,159 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  name          String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  profile       Profile?
+  recipes       Recipe[]
+  foodLogs      FoodLog[]
+  refreshTokens RefreshToken[]
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("refresh_tokens")
+}
+
+model Profile {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  birthDate     DateTime?
+  gender        Gender?
+  heightCm      Float?
+  weightKg      Float?
+  activityLevel ActivityLevel @default(SEDENTARY)
+  goal          Goal          @default(MAINTAIN)
+  calorieTarget Int?
+  proteinTarget Float?
+  carbTarget    Float?
+  fatTarget     Float?
+  updatedAt     DateTime      @updatedAt
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("profiles")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHTLY_ACTIVE
+  MODERATELY_ACTIVE
+  VERY_ACTIVE
+  EXTRA_ACTIVE
+}
+
+enum Goal {
+  LOSE
+  MAINTAIN
+  GAIN
+}
+
+model Food {
+  id           String        @id @default(uuid())
+  name         String
+  brand        String?
+  source       FoodSource    @default(CUSTOM)
+  externalId   String?
+  barcode      String?
+  servingSizeG Float         @default(100)
+  servingUnit  String        @default("g")
+  calories     Float
+  protein      Float
+  carbs        Float
+  fat          Float
+  fiber        Float?
+  sugar        Float?
+  sodium       Float?
+  saturatedFat Float?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  recipeItems  RecipeItem[]
+  foodLogItems FoodLogItem[]
+  @@unique([source, externalId])
+  @@map("foods")
+}
+
+enum FoodSource {
+  CUSTOM
+  USDA
+  OPEN_FOOD_FACTS
+}
+
+model Recipe {
+  id           String        @id @default(uuid())
+  userId       String
+  name         String
+  description  String?
+  servings     Int           @default(1)
+  isPublic     Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items        RecipeItem[]
+  foodLogItems FoodLogItem[]
+  @@map("recipes")
+}
+
+model RecipeItem {
+  id        String @id @default(uuid())
+  recipeId  String
+  foodId    String
+  quantityG Float
+  recipe    Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  food      Food   @relation(fields: [foodId], references: [id])
+  @@map("recipe_items")
+}
+
+model FoodLog {
+  id        String        @id @default(uuid())
+  userId    String
+  date      DateTime      @db.Date
+  createdAt DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     FoodLogItem[]
+  @@unique([userId, date])
+  @@map("food_logs")
+}
+
+model FoodLogItem {
+  id        String   @id @default(uuid())
+  logId     String
+  foodId    String?
+  recipeId  String?
+  meal      Meal     @default(OTHER)
+  quantityG Float
+  createdAt DateTime @default(now())
+  log       FoodLog  @relation(fields: [logId], references: [id], onDelete: Cascade)
+  food      Food?    @relation(fields: [foodId], references: [id])
+  recipe    Recipe?  @relation(fields: [recipeId], references: [id])
+  @@map("food_log_items")
+}
+
+enum Meal {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+  OTHER
+}

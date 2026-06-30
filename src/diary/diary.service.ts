@@ -20,35 +20,28 @@ export class DiaryService {
 
   async getLog(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
-
     let log = await this.prisma.foodLog.findUnique({
       where: { userId_date: { userId, date } },
       include: this.logInclude(),
     });
-
     if (!log) {
       log = await this.prisma.foodLog.create({
         data: { userId, date },
         include: this.logInclude(),
       });
     }
-
     return this.formatLog(log);
   }
 
   async addItem(userId: string, dto: AddItemDto, dateStr?: string) {
-    if (!dto.foodId && !dto.recipeId) {
+    if (!dto.foodId && !dto.recipeId)
       throw new BadRequestException('Se requiere foodId o recipeId');
-    }
 
     const date = this.parseDate(dateStr);
-
     let log = await this.prisma.foodLog.findUnique({
       where: { userId_date: { userId, date } },
     });
-    if (!log) {
-      log = await this.prisma.foodLog.create({ data: { userId, date } });
-    }
+    if (!log) log = await this.prisma.foodLog.create({ data: { userId, date } });
 
     return this.prisma.foodLogItem.create({
       data: {
@@ -58,7 +51,7 @@ export class DiaryService {
         quantityG: dto.quantityG,
         meal:      dto.meal ?? 'OTHER',
       },
-      include: { food: true, recipe: true },
+      include: this.itemInclude(),
     });
   }
 
@@ -67,9 +60,8 @@ export class DiaryService {
       where: { id: itemId },
       include: { log: true },
     });
-    if (!item || item.log.userId !== userId) {
+    if (!item || item.log.userId !== userId)
       throw new NotFoundException('Item no encontrado');
-    }
 
     return this.prisma.foodLogItem.update({
       where: { id: itemId },
@@ -77,7 +69,7 @@ export class DiaryService {
         ...(dto.quantityG !== undefined && { quantityG: dto.quantityG }),
         ...(dto.meal      !== undefined && { meal:      dto.meal }),
       },
-      include: { food: true, recipe: true },
+      include: this.itemInclude(),
     });
   }
 
@@ -86,27 +78,21 @@ export class DiaryService {
       where: { id: itemId },
       include: { log: true },
     });
-    if (!item || item.log.userId !== userId) {
+    if (!item || item.log.userId !== userId)
       throw new NotFoundException('Item no encontrado');
-    }
-
     await this.prisma.foodLogItem.delete({ where: { id: itemId } });
     return { deleted: true };
   }
 
   async getSummary(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
-
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
-
     const log = await this.prisma.foodLog.findUnique({
       where: { userId_date: { userId, date } },
       include: this.logInclude(),
     });
 
     const consumed = this.calcConsumed(log?.items ?? []);
-    const round = (n: number) => Math.round(n * 10) / 10;
-
     return {
       date: date.toISOString().split('T')[0],
       targets: {
@@ -115,17 +101,12 @@ export class DiaryService {
         carbs:    profile?.carbTarget    ?? 0,
         fat:      profile?.fatTarget     ?? 0,
       },
-      consumed: {
-        calories: round(consumed.calories),
-        protein:  round(consumed.protein),
-        carbs:    round(consumed.carbs),
-        fat:      round(consumed.fat),
-      },
+      consumed,
       remaining: {
-        calories: round((profile?.calorieTarget ?? 0) - consumed.calories),
-        protein:  round((profile?.proteinTarget ?? 0) - consumed.protein),
-        carbs:    round((profile?.carbTarget    ?? 0) - consumed.carbs),
-        fat:      round((profile?.fatTarget     ?? 0) - consumed.fat),
+        calories: this.round((profile?.calorieTarget ?? 0) - consumed.calories),
+        protein:  this.round((profile?.proteinTarget ?? 0) - consumed.protein),
+        carbs:    this.round((profile?.carbTarget    ?? 0) - consumed.carbs),
+        fat:      this.round((profile?.fatTarget     ?? 0) - consumed.fat),
       },
     };
   }
@@ -136,60 +117,42 @@ export class DiaryService {
     return d;
   }
 
+  private itemInclude() {
+    return {
+      food: true,
+      recipe: {
+        include: { items: { include: { food: true } } },
+      },
+    };
+  }
+
   private logInclude() {
     return {
       items: {
-        include: {
-          food: true,
-          recipe: {
-            include: { items: { include: { food: true } } },
-          },
-        },
+        include: this.itemInclude(),
         orderBy: { createdAt: 'asc' as const },
       },
     };
   }
 
   private formatLog(log: any) {
-    const items = (log.items ?? []).map((item: any) => ({
-      id:        item.id,
-      meal:      item.meal,
-      quantityG: item.quantityG,
-      food:      item.food   ? this.formatFood(item.food, item.quantityG) : null,
-      recipe:    item.recipe ? { id: item.recipe.id, name: item.recipe.name } : null,
-      macros:    this.calcItemMacros(item),
-    }));
-
     return {
       id:   log.id,
       date: log.date.toISOString().split('T')[0],
-      items,
-    };
-  }
-
-  private formatFood(food: any, quantityG: number) {
-    const ratio = quantityG / (food.servingSizeG || 100);
-    return {
-      id:    food.id,
-      name:  food.name,
-      brand: food.brand,
-      per100g: {
-        calories: food.calories,
-        protein:  food.protein,
-        carbs:    food.carbs,
-        fat:      food.fat,
-      },
-      forQuantity: {
-        calories: Math.round(food.calories * ratio * 10) / 10,
-        protein:  Math.round(food.protein  * ratio * 10) / 10,
-        carbs:    Math.round(food.carbs    * ratio * 10) / 10,
-        fat:      Math.round(food.fat      * ratio * 10) / 10,
-      },
+      items: log.items.map((item: any) => ({
+        id:        item.id,
+        meal:      item.meal,
+        quantityG: item.quantityG,
+        food:      item.food   ?? null,
+        recipe:    item.recipe ? { id: item.recipe.id, name: item.recipe.name } : null,
+        macros:    this.calcItemMacros(item),
+      })),
     };
   }
 
   private calcItemMacros(item: any) {
     const r = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+
     if (item.food) {
       const ratio = item.quantityG / (item.food.servingSizeG || 100);
       r.calories = item.food.calories * ratio;
@@ -197,17 +160,26 @@ export class DiaryService {
       r.carbs    = item.food.carbs    * ratio;
       r.fat      = item.food.fat      * ratio;
     }
+
     if (item.recipe) {
+      const portions = item.quantityG;
+      const servings = item.recipe.servings || 1;
       for (const ri of item.recipe.items ?? []) {
-        const ratio = (item.quantityG / (item.recipe.servings || 1)) / (ri.food.servingSizeG || 100) * ri.quantityG;
-        r.calories += ri.food.calories * ratio / ri.quantityG;
-        r.protein  += ri.food.protein  * ratio / ri.quantityG;
-        r.carbs    += ri.food.carbs    * ratio / ri.quantityG;
-        r.fat      += ri.food.fat      * ratio / ri.quantityG;
+        const grams = ri.quantityG * (portions / servings);
+        const ratio = grams / (ri.food.servingSizeG || 100);
+        r.calories += ri.food.calories * ratio;
+        r.protein  += ri.food.protein  * ratio;
+        r.carbs    += ri.food.carbs    * ratio;
+        r.fat      += ri.food.fat      * ratio;
       }
     }
-    const round = (n: number) => Math.round(n * 10) / 10;
-    return { calories: round(r.calories), protein: round(r.protein), carbs: round(r.carbs), fat: round(r.fat) };
+
+    return {
+      calories: this.round(r.calories),
+      protein:  this.round(r.protein),
+      carbs:    this.round(r.carbs),
+      fat:      this.round(r.fat),
+    };
   }
 
   private calcConsumed(items: any[]) {
@@ -219,6 +191,15 @@ export class DiaryService {
       t.carbs    += m.carbs;
       t.fat      += m.fat;
     }
-    return t;
+    return {
+      calories: this.round(t.calories),
+      protein:  this.round(t.protein),
+      carbs:    this.round(t.carbs),
+      fat:      this.round(t.fat),
+    };
+  }
+
+  private round(n: number) {
+    return Math.round(n * 10) / 10;
   }
 }

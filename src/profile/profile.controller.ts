@@ -1,31 +1,32 @@
-import { Controller, Get, Put, Body, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Put, Body, Request, UseGuards,
+} from '@nestjs/common';
 import { ProfileService } from './profile.service';
-import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
-@Controller('profile')
+@Controller('me')
 @UseGuards(JwtGuard)
 export class ProfileController {
-  constructor(private profile: ProfileService) {}
+  constructor(private service: ProfileService) {}
 
-  @Get()
-  get(@Request() req: any) {
-    return this.profile.getProfile(req.user.id);
+  @Get('profile')
+  getProfile(@Request() req: any) {
+    return this.service.getProfile(req.user.id);
   }
 
-  @Put()
-  update(@Request() req: any, @Body() dto: UpdateProfileDto) {
-    return this.profile.updateProfile(req.user.id, dto);
+  @Put('profile')
+  updateProfile(@Request() req: any, @Body() body: any) {
+    return this.service.updateProfile(req.user.id, body);
   }
 
   @Get('daily')
-  daily(@Request() req: any) {
-    return this.profile.getDaily(req.user.id);
+  getDaily(@Request() req: any) {
+    return this.service.getDaily(req.user.id);
   }
 
-  // GET /profile/goals — historial de metas
+  // Paso 3.3 — Historial de metas
   @Get('goals')
-  goalHistory(@Request() req: any) {
-    return this.profile.getGoalHistory(req.user.id);
+  getGoalHistory(@Request() req: any) {
+    return this.service.getGoalHistory(req.user.id);
   }
 }

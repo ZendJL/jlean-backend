@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DayTypesService } from '../day-types/day-types.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class AuthService {
     private jwt: JwtService,
     private config: ConfigService,
     private prisma: PrismaService,
+    private dayTypes: DayTypesService,
   ) {}
 
   async register(email: string, password: string, name: string) {
@@ -22,6 +24,10 @@ export class AuthService {
     this.logger.log(`Registrando nuevo usuario: ${email}`);
     const user = await this.users.create(email, password, name);
     await this.prisma.profile.create({ data: { userId: user.id } });
+
+    // Paso 3.4: crear tipos de día predeterminados para el usuario nuevo
+    await this.dayTypes.seedDefaultDayTypes(user.id);
+
     this.logger.log(`Usuario registrado con id=${user.id}`);
     return this.generateTokens(user.id, user.email);
   }
@@ -42,10 +48,8 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token inválido o expirado');
     }
 
-    // Obtener usuario para incluir email correcto en el nuevo payload
     const user = await this.users.findById(stored.userId);
     if (!user) {
-      // Limpiar el token huérfano y rechazar
       await this.prisma.refreshToken.delete({ where: { token } });
       throw new UnauthorizedException('Usuario no encontrado para este refresh token');
     }

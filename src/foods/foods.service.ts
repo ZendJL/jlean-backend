@@ -40,7 +40,7 @@ export class FoodsService {
     );
     return (data.foods ?? []).map((f: any) => ({
       externalId:   String(f.fdcId),
-      source:       'USDA' as FoodSource,
+      source:       FoodSource.USDA,
       name:         f.description,
       brand:        f.brandOwner ?? null,
       calories:     this.getNutrient(f.foodNutrients, 1008),
@@ -65,7 +65,7 @@ export class FoodsService {
   async getByBarcode(barcode: string) {
     // 1. Buscar primero en DB local por externalId
     const cached = await this.prisma.food.findFirst({
-      where: { externalId: barcode, source: 'OFF' },
+      where: { externalId: barcode, source: FoodSource.OFF },
     });
     if (cached) return cached;
 
@@ -133,7 +133,7 @@ export class FoodsService {
   private mapOffProduct(p: any) {
     return {
       externalId:   String(p.id ?? p._id ?? ''),
-      source:       'OFF' as FoodSource,
+      source:       FoodSource.OFF,
       name:         p.product_name ?? p.product_name_en ?? 'Unknown',
       brand:        p.brands ?? null,
       calories:     this.round(p.nutriments?.['energy-kcal_100g'] ?? 0),

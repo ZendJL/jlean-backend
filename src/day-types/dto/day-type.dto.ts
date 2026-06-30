@@ -1,23 +1,23 @@
-import { IsString, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean, Min, Max } from 'class-validator';
 
 export class CreateDayTypeDto {
   @IsString()
   name: string;
 
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  /** Multiplicador sobre el TDEE base. Ej: 0.85 = -15%, 1.1 = +10% */
+  /** Porcentaje de ajuste sobre TDEE base. Ej: -15 = Rest, +10 = Training */
   @IsNumber()
-  @Min(0.3)
-  @Max(2.0)
-  tdeeMultiplier: number;
+  @Min(-70)
+  @Max(100)
+  tdeAdjustPct: number;
 
-  /** Color hex para UI. Ej: "#4f98a3" */
+  /** Color hex para la UI. Ej: "#4f98a3" */
   @IsOptional()
   @IsString()
   color?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 export class UpdateDayTypeDto {
@@ -26,16 +26,16 @@ export class UpdateDayTypeDto {
   name?: string;
 
   @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
   @IsNumber()
-  @Min(0.3)
-  @Max(2.0)
-  tdeeMultiplier?: number;
+  @Min(-70)
+  @Max(100)
+  tdeAdjustPct?: number;
 
   @IsOptional()
   @IsString()
   color?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }

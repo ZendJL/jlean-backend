@@ -1,19 +1,22 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Request, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { JwtGuard } from './jwt.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
 
   @Post('register')
-  register(@Body() body: { email: string; password: string; name: string }) {
-    return this.auth.register(body.email, body.password, body.name);
+  register(@Body() dto: RegisterDto) {
+    return this.auth.register(dto.email, dto.password, dto.name ?? '');
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() body: { email: string; password: string }) {
-    return this.auth.login(body.email, body.password);
+  login(@Body() dto: LoginDto) {
+    return this.auth.login(dto.email, dto.password);
   }
 
   @Post('refresh')
@@ -24,6 +27,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtGuard)
   logout(@Body() body: { refreshToken: string }) {
     return this.auth.logout(body.refreshToken);
   }

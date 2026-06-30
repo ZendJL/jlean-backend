@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { FoodsService } from './foods.service';
+import { ImportFoodDto } from './dto/import-food.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('foods')
@@ -16,8 +17,8 @@ export class FoodsController {
   }
 
   @Post('import')
-  import(@Body() body: any) {
-    return this.foods.importFood(body);
+  import(@Body() dto: ImportFoodDto) {
+    return this.foods.importFood(dto);
   }
 
   @Get(':id')

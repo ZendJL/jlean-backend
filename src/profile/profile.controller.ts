@@ -1,5 +1,6 @@
-import { Controller, Get, Put, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Put, Body, Request, UseGuards } from '@nestjs/common';
 import { ProfileService } from './profile.service';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('profile')
@@ -8,17 +9,17 @@ export class ProfileController {
   constructor(private profile: ProfileService) {}
 
   @Get()
-  getProfile(@Request() req: any) {
+  get(@Request() req: any) {
     return this.profile.getProfile(req.user.id);
   }
 
   @Put()
-  updateProfile(@Request() req: any, @Body() body: any) {
-    return this.profile.updateProfile(req.user.id, body);
+  update(@Request() req: any, @Body() dto: UpdateProfileDto) {
+    return this.profile.updateProfile(req.user.id, dto);
   }
 
   @Get('daily')
-  getDaily(@Request() req: any) {
+  daily(@Request() req: any) {
     return this.profile.getDaily(req.user.id);
   }
 }

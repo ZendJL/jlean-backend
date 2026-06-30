@@ -3,6 +3,8 @@ import {
   Body, Param, Request, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { RecipesService } from './recipes.service';
+import { CreateRecipeDto } from './dto/create-recipe.dto';
+import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('recipes')
@@ -11,17 +13,8 @@ export class RecipesController {
   constructor(private recipes: RecipesService) {}
 
   @Post()
-  create(
-    @Request() req: any,
-    @Body() body: {
-      name: string;
-      description?: string;
-      servings?: number;
-      isPublic?: boolean;
-      items: { foodId: string; quantityG: number }[];
-    },
-  ) {
-    return this.recipes.create(req.user.id, body);
+  create(@Request() req: any, @Body() dto: CreateRecipeDto) {
+    return this.recipes.create(req.user.id, dto);
   }
 
   @Get()
@@ -35,18 +28,8 @@ export class RecipesController {
   }
 
   @Put(':id')
-  update(
-    @Request() req: any,
-    @Param('id') id: string,
-    @Body() body: {
-      name?: string;
-      description?: string;
-      servings?: number;
-      isPublic?: boolean;
-      items?: { foodId: string; quantityG: number }[];
-    },
-  ) {
-    return this.recipes.update(req.user.id, id, body);
+  update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateRecipeDto) {
+    return this.recipes.update(req.user.id, id, dto);
   }
 
   @Delete(':id')

@@ -3,8 +3,9 @@ import {
   Body, Param, Query, Request, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { DiaryService } from './diary.service';
+import { AddDiaryItemDto } from './dto/add-item.dto';
+import { UpdateDiaryItemDto } from './dto/update-item.dto';
 import { JwtGuard } from '../auth/jwt.guard';
-import { Meal } from '@prisma/client';
 
 @Controller('diary')
 @UseGuards(JwtGuard)
@@ -22,21 +23,18 @@ export class DiaryController {
   }
 
   @Post('items')
-  addItem(
-    @Request() req: any,
-    @Body() body: { foodId?: string; recipeId?: string; quantityG: number; meal?: Meal; date?: string },
-  ) {
-    const { date, ...dto } = body;
-    return this.diary.addItem(req.user.id, dto, date);
+  addItem(@Request() req: any, @Body() dto: AddDiaryItemDto) {
+    const { date, ...rest } = dto;
+    return this.diary.addItem(req.user.id, rest, date);
   }
 
   @Put('items/:id')
   updateItem(
     @Request() req: any,
     @Param('id') id: string,
-    @Body() body: { quantityG?: number; meal?: Meal },
+    @Body() dto: UpdateDiaryItemDto,
   ) {
-    return this.diary.updateItem(req.user.id, id, body);
+    return this.diary.updateItem(req.user.id, id, dto);
   }
 
   @Delete('items/:id')

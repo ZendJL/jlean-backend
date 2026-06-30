@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 interface CreateRecipeDto {
@@ -19,9 +19,12 @@ interface UpdateRecipeDto {
 
 @Injectable()
 export class RecipesService {
+  private readonly logger = new Logger(RecipesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateRecipeDto) {
+    this.logger.log(`Creando receta "${dto.name}" para userId=${userId}`);
     const recipe = await this.prisma.recipe.create({
       data: {
         userId,
@@ -38,7 +41,8 @@ export class RecipesService {
       },
       include: this.recipeInclude(),
     });
-    return this.formatRecipe(recipe);
+    this.logger.log(`Receta creada id=${recipe.id}`);
+    return this.formatRecipe(recipe, userId);
   }
 
   async findAll(userId: string) {
@@ -47,7 +51,8 @@ export class RecipesService {
       include: this.recipeInclude(),
       orderBy: { createdAt: 'desc' },
     });
-    return recipes.map((r) => this.formatRecipe(r));
+    // B-06 FIX: pasar userId para calcular isOwner correctamente
+    return recipes.map((r) => this.formatRecipe(r, userId));
   }
 
   async findOne(userId: string, id: string) {
@@ -58,7 +63,8 @@ export class RecipesService {
     if (!recipe) throw new NotFoundException('Receta no encontrada');
     if (recipe.userId !== userId && !recipe.isPublic)
       throw new ForbiddenException('Sin acceso a esta receta');
-    return this.formatRecipe(recipe);
+    // B-06 FIX: pasar userId
+    return this.formatRecipe(recipe, userId);
   }
 
   async update(userId: string, id: string, dto: UpdateRecipeDto) {
@@ -70,6 +76,7 @@ export class RecipesService {
       await this.prisma.recipeItem.deleteMany({ where: { recipeId: id } });
     }
 
+    this.logger.log(`Actualizando receta id=${id} para userId=${userId}`);
     const updated = await this.prisma.recipe.update({
       where: { id },
       data: {
@@ -88,13 +95,14 @@ export class RecipesService {
       },
       include: this.recipeInclude(),
     });
-    return this.formatRecipe(updated);
+    return this.formatRecipe(updated, userId);
   }
 
   async remove(userId: string, id: string) {
     const recipe = await this.prisma.recipe.findUnique({ where: { id } });
     if (!recipe) throw new NotFoundException('Receta no encontrada');
     if (recipe.userId !== userId) throw new ForbiddenException('No es tu receta');
+    this.logger.log(`Eliminando receta id=${id} para userId=${userId}`);
     await this.prisma.recipe.delete({ where: { id } });
     return { deleted: true };
   }
@@ -108,7 +116,8 @@ export class RecipesService {
     };
   }
 
-  private formatRecipe(recipe: any) {
+  // B-06 FIX: recibe userId para calcular isOwner correctamente
+  private formatRecipe(recipe: any, userId: string) {
     const macros = this.calcMacros(recipe.items, recipe.servings);
     return {
       id:          recipe.id,
@@ -116,7 +125,7 @@ export class RecipesService {
       description: recipe.description,
       servings:    recipe.servings,
       isPublic:    recipe.isPublic,
-      isOwner:     true,
+      isOwner:     recipe.userId === userId,  // FIX: antes era siempre true
       createdAt:   recipe.createdAt,
       items: recipe.items.map((item: any) => ({
         id:        item.id,

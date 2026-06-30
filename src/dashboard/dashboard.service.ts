@@ -34,10 +34,10 @@ export class DashboardService {
 
     const items = log?.items ?? []
 
-    // Group items by mealType so the frontend can render meals["BREAKFAST"], etc.
+    // Group items by meal (enum: BREAKFAST | LUNCH | DINNER | SNACK | OTHER)
     const meals: Record<string, typeof items> = {}
     for (const item of items) {
-      const key = item.mealType ?? 'UNCATEGORIZED'
+      const key = item.meal ?? 'OTHER'
       if (!meals[key]) meals[key] = []
       meals[key].push(item)
     }
@@ -96,7 +96,7 @@ export class DashboardService {
       targets,
       consumed,
       remaining,
-      meals,          // { BREAKFAST: [...], LUNCH: [...], ... }
+      meals,           // { BREAKFAST: [...], LUNCH: [...], ... }
       logItems: items, // flat array kept for backwards compat
       pendingSupplements,
       takenSupplements: supplementLogs,

@@ -1,23 +1,23 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Meal } from '@prisma/client';
 
 interface AddItemDto {
   foodId?: string;
   recipeId?: string;
   quantityG: number;
-  mealType?: string;
+  meal?: Meal;
 }
 
 interface UpdateItemDto {
   quantityG?: number;
-  mealType?: string;
+  meal?: Meal;
 }
 
 @Injectable()
 export class DiaryService {
   constructor(private prisma: PrismaService) {}
 
-  // ─── Obtener o crear el log del día ───────────────────────────────────────
   async getLog(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
 
@@ -36,7 +36,6 @@ export class DiaryService {
     return this.formatLog(log);
   }
 
-  // ─── Agregar item al log ──────────────────────────────────────────────────
   async addItem(userId: string, dto: AddItemDto, dateStr?: string) {
     if (!dto.foodId && !dto.recipeId) {
       throw new BadRequestException('Se requiere foodId o recipeId');
@@ -44,7 +43,6 @@ export class DiaryService {
 
     const date = this.parseDate(dateStr);
 
-    // Obtener o crear el log del día
     let log = await this.prisma.foodLog.findUnique({
       where: { userId_date: { userId, date } },
     });
@@ -52,21 +50,18 @@ export class DiaryService {
       log = await this.prisma.foodLog.create({ data: { userId, date } });
     }
 
-    const item = await this.prisma.foodLogItem.create({
+    return this.prisma.foodLogItem.create({
       data: {
         logId:     log.id,
         foodId:    dto.foodId   ?? null,
         recipeId:  dto.recipeId ?? null,
         quantityG: dto.quantityG,
-        mealType:  dto.mealType ?? 'OTHER',
+        meal:      dto.meal ?? 'OTHER',
       },
       include: { food: true, recipe: true },
     });
-
-    return item;
   }
 
-  // ─── Editar item ──────────────────────────────────────────────────────────
   async updateItem(userId: string, itemId: string, dto: UpdateItemDto) {
     const item = await this.prisma.foodLogItem.findUnique({
       where: { id: itemId },
@@ -80,13 +75,12 @@ export class DiaryService {
       where: { id: itemId },
       data: {
         ...(dto.quantityG !== undefined && { quantityG: dto.quantityG }),
-        ...(dto.mealType  !== undefined && { mealType:  dto.mealType }),
+        ...(dto.meal      !== undefined && { meal:      dto.meal }),
       },
       include: { food: true, recipe: true },
     });
   }
 
-  // ─── Eliminar item ────────────────────────────────────────────────────────
   async deleteItem(userId: string, itemId: string) {
     const item = await this.prisma.foodLogItem.findUnique({
       where: { id: itemId },
@@ -100,7 +94,6 @@ export class DiaryService {
     return { deleted: true };
   }
 
-  // ─── Resumen del día ──────────────────────────────────────────────────────
   async getSummary(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
 
@@ -137,7 +130,6 @@ export class DiaryService {
     };
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
   private parseDate(dateStr?: string): Date {
     const d = dateStr ? new Date(dateStr) : new Date();
     d.setHours(0, 0, 0, 0);
@@ -161,9 +153,9 @@ export class DiaryService {
   private formatLog(log: any) {
     const items = (log.items ?? []).map((item: any) => ({
       id:        item.id,
-      mealType:  item.mealType,
+      meal:      item.meal,
       quantityG: item.quantityG,
-      food:      item.food   ? this.formatFood(item.food, item.quantityG)   : null,
+      food:      item.food   ? this.formatFood(item.food, item.quantityG) : null,
       recipe:    item.recipe ? { id: item.recipe.id, name: item.recipe.name } : null,
       macros:    this.calcItemMacros(item),
     }));
@@ -178,9 +170,9 @@ export class DiaryService {
   private formatFood(food: any, quantityG: number) {
     const ratio = quantityG / (food.servingSizeG || 100);
     return {
-      id:       food.id,
-      name:     food.name,
-      brand:    food.brand,
+      id:    food.id,
+      name:  food.name,
+      brand: food.brand,
       per100g: {
         calories: food.calories,
         protein:  food.protein,
@@ -219,14 +211,14 @@ export class DiaryService {
   }
 
   private calcConsumed(items: any[]) {
-    const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    const t = { calories: 0, protein: 0, carbs: 0, fat: 0 };
     for (const item of items) {
       const m = this.calcItemMacros(item);
-      totals.calories += m.calories;
-      totals.protein  += m.protein;
-      totals.carbs    += m.carbs;
-      totals.fat      += m.fat;
+      t.calories += m.calories;
+      t.protein  += m.protein;
+      t.carbs    += m.carbs;
+      t.fat      += m.fat;
     }
-    return totals;
+    return t;
   }
 }

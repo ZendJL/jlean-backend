@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { FoodSource } from '@prisma/client';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -30,13 +31,13 @@ export class FoodsService {
 
   private async searchUsda(q: string) {
     const apiKey = this.config.get<string>('USDA_FDC_API_KEY');
-    const url = `${this.usdaBase}/foods/search`;
+    const url = this.usdaBase + '/foods/search';
     const { data } = await firstValueFrom(
       this.http.get(url, { params: { query: q, api_key: apiKey, pageSize: 20 } }),
     );
     return (data.foods ?? []).map((f: any) => ({
       externalId: String(f.fdcId),
-      source: 'USDA',
+      source: 'USDA' as FoodSource,
       name: f.description,
       brand: f.brandOwner ?? null,
       calories: this.getNutrient(f.foodNutrients, 1008),
@@ -55,7 +56,7 @@ export class FoodsService {
     );
     return (data.products ?? []).map((p: any) => ({
       externalId: p.id,
-      source: 'OFF',
+      source: 'OFF' as FoodSource,
       name: p.product_name ?? p.product_name_en ?? 'Unknown',
       brand: p.brands ?? null,
       calories: p.nutriments?.['energy-kcal_100g'] ?? 0,
@@ -68,7 +69,7 @@ export class FoodsService {
 
   async importFood(dto: {
     externalId: string;
-    source: string;
+    source: FoodSource;
     name: string;
     brand?: string;
     calories: number;
@@ -77,10 +78,13 @@ export class FoodsService {
     fat: number;
     servingSizeG?: number;
   }) {
-    return this.prisma.food.upsert({
-      where: { externalId_source: { externalId: dto.externalId, source: dto.source } },
-      update: {},
-      create: {
+    const existing = await this.prisma.food.findFirst({
+      where: { externalId: dto.externalId, source: dto.source },
+    });
+    if (existing) return existing;
+
+    return this.prisma.food.create({
+      data: {
         externalId:   dto.externalId,
         source:       dto.source,
         name:         dto.name,

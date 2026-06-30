@@ -3,14 +3,22 @@ import {
   Body, Param, Request, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { RecipesService } from './recipes.service';
+import { RecipeBuilderService } from './recipe-builder.service';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { UpdateRecipeDto } from './dto/update-recipe.dto';
+import { BuildMacrosDto } from './dto/build-macros.dto';
+import { BuildMicrosDto } from './dto/build-micros.dto';
 import { JwtGuard } from '../auth/jwt.guard';
 
 @Controller('recipes')
 @UseGuards(JwtGuard)
 export class RecipesController {
-  constructor(private recipes: RecipesService) {}
+  constructor(
+    private recipes: RecipesService,
+    private builder: RecipeBuilderService,
+  ) {}
+
+  // ─── CRUD ────────────────────────────────────────────────────────────────
 
   @Post()
   create(@Request() req: any, @Body() dto: CreateRecipeDto) {
@@ -36,5 +44,27 @@ export class RecipesController {
   @HttpCode(HttpStatus.OK)
   remove(@Request() req: any, @Param('id') id: string) {
     return this.recipes.remove(req.user.id, id);
+  }
+
+  // ─── Constructor avanzado (Paso 5.3) ─────────────────────────────────────
+
+  /**
+   * POST /recipes/build/macros
+   * Sugiere ingredientes para alcanzar un target de calorías + proteína.
+   * Body: { targetCalories, targetProtein, carbFatBalance?, presetsOnly? }
+   */
+  @Post('build/macros')
+  buildByMacros(@Body() dto: BuildMacrosDto) {
+    return this.builder.buildByMacros(dto);
+  }
+
+  /**
+   * POST /recipes/build/micros
+   * Sugiere alimentos para cubrir un déficit de micronutriente.
+   * Body: { microField, gapAmount, maxCalories? }
+   */
+  @Post('build/micros')
+  buildByMicros(@Body() dto: BuildMicrosDto) {
+    return this.builder.buildByMicros(dto);
   }
 }

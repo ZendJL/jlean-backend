@@ -1,2 +1,4 @@
-// Re-export para compatibilidad con imports que usan esta ruta
-export { JwtAuthGuard } from '../jwt.guard'
+import { JwtGuard } from '../jwt.guard'
+
+// Alias para compatibilidad con imports que usan JwtAuthGuard
+export { JwtGuard as JwtAuthGuard }

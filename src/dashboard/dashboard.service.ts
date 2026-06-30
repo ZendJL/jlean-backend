@@ -9,24 +9,15 @@ export class DashboardService {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const profile = await this.prisma.profile.findUnique({
-      where: { userId },
-    })
+    const profile = await this.prisma.profile.findUnique({ where: { userId } })
 
     const log = await this.prisma.foodLog.findFirst({
       where: { userId, date: today },
-      include: {
-        items: {
-          include: { food: true, recipe: true },
-        },
-      },
+      include: { items: { include: { food: true, recipe: true } } },
     })
 
     const supplementLogs = await this.prisma.supplementLog.findMany({
-      where: {
-        userId,
-        takenAt: { gte: today },
-      },
+      where: { userId, takenAt: { gte: today } },
       include: { supplement: true },
     })
 
@@ -34,30 +25,21 @@ export class DashboardService {
       where: { userId, active: true },
     })
 
-    const fastingConfig = await this.prisma.fastingConfig.findUnique({
-      where: { userId },
-    })
+    const fastingConfig = await this.prisma.fastingConfig.findUnique({ where: { userId } })
 
     const lastSleep = await this.prisma.sleepEntry.findFirst({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     })
 
-    // Calcular totales del día
     const items = log?.items ?? []
     const consumed = items.reduce(
-      (acc, item) => {
-        const calories = item.snapshotCalories ?? 0
-        const protein  = item.snapshotProtein  ?? 0
-        const carbs    = item.snapshotCarbs    ?? 0
-        const fat      = item.snapshotFat      ?? 0
-        return {
-          calories: acc.calories + calories,
-          protein:  acc.protein  + protein,
-          carbs:    acc.carbs    + carbs,
-          fat:      acc.fat      + fat,
-        }
-      },
+      (acc, item) => ({
+        calories: acc.calories + (item.snapshotCalories ?? 0),
+        protein:  acc.protein  + (item.snapshotProtein  ?? 0),
+        carbs:    acc.carbs    + (item.snapshotCarbs    ?? 0),
+        fat:      acc.fat      + (item.snapshotFat      ?? 0),
+      }),
       { calories: 0, protein: 0, carbs: 0, fat: 0 },
     )
 
@@ -75,14 +57,12 @@ export class DashboardService {
       fat:      targets.fat      - consumed.fat,
     }
 
-    const takenSupplementIds = new Set(supplementLogs.map(l => l.supplementId))
-    const pendingSupplements = supplements.filter(s => !takenSupplementIds.has(s.id))
+    const takenIds       = new Set(supplementLogs.map(l => l.supplementId))
+    const pendingSupplements = supplements.filter(s => !takenIds.has(s.id))
 
-    // Estado de ayuno
-    let fastingStatus = null
+    let fastingStatus: Record<string, unknown> | null = null
     if (fastingConfig?.active) {
-      const now = new Date()
-      const hour = now.getHours()
+      const hour   = new Date().getHours()
       const eatEnd = (fastingConfig.eatStartHour + fastingConfig.eatHours) % 24
       const inEatingWindow =
         fastingConfig.eatStartHour <= eatEnd
@@ -102,16 +82,6 @@ export class DashboardService {
       }
     }
 
-    return {
-      date: today,
-      targets,
-      consumed,
-      remaining,
-      logItems: items,
-      pendingSupplements,
-      takenSupplements: supplementLogs,
-      fastingStatus,
-      lastSleep,
-    }
+    return { date: today, targets, consumed, remaining, logItems: items, pendingSupplements, takenSupplements: supplementLogs, fastingStatus, lastSleep }
   }
 }

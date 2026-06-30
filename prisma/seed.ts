@@ -1,6 +1,6 @@
 /**
  * Seed de presets básicos — Paso 4.1
- * Ejecutar: npx ts-node prisma/seed.ts
+ * Ejecutar: npx prisma db seed
  *
  * Presets cubiertos: proteínas animales, granos, lácteos, frutas/verduras,
  * suplementos deportivos. Macros por 100g salvo indicación.
@@ -9,10 +9,7 @@
 import 'dotenv/config';
 import { PrismaClient, FoodSource, DataQuality } from '@prisma/client';
 
-// Prisma 7 con prisma.config.ts requiere datasourceUrl explícito.
-// Cast a `any` porque los tipos bundleados aún no declaran la opción.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL } as any);
+const prisma = new PrismaClient();
 
 const PRESETS: Array<{
   name: string;

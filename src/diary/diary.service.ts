@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Meal } from '@prisma/client';
 
@@ -16,6 +21,8 @@ interface UpdateItemDto {
 
 @Injectable()
 export class DiaryService {
+  private readonly logger = new Logger(DiaryService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getLog(userId: string, dateStr?: string) {
@@ -25,6 +32,7 @@ export class DiaryService {
       include: this.logInclude(),
     });
     if (!log) {
+      this.logger.log(`Creando log del día ${date.toISOString().split('T')[0]} para userId=${userId}`);
       log = await this.prisma.foodLog.create({
         data: { userId, date },
         include: this.logInclude(),
@@ -37,11 +45,29 @@ export class DiaryService {
     if (!dto.foodId && !dto.recipeId)
       throw new BadRequestException('Se requiere foodId o recipeId');
 
+    // B-04 FIX: verificar que la referencia existe antes de insertar
+    if (dto.foodId) {
+      const food = await this.prisma.food.findUnique({ where: { id: dto.foodId } });
+      if (!food)
+        throw new NotFoundException(`Alimento con id=${dto.foodId} no encontrado`);
+    }
+    if (dto.recipeId) {
+      const recipe = await this.prisma.recipe.findUnique({ where: { id: dto.recipeId } });
+      if (!recipe)
+        throw new NotFoundException(`Receta con id=${dto.recipeId} no encontrada`);
+    }
+
     const date = this.parseDate(dateStr);
     let log = await this.prisma.foodLog.findUnique({
       where: { userId_date: { userId, date } },
     });
     if (!log) log = await this.prisma.foodLog.create({ data: { userId, date } });
+
+    this.logger.log(
+      `Agregando item al log ${date.toISOString().split('T')[0]} ` +
+      `(userId=${userId}, foodId=${dto.foodId ?? '-'}, recipeId=${dto.recipeId ?? '-'}, ` +
+      `quantityG=${dto.quantityG}, meal=${dto.meal ?? 'OTHER'})`,
+    );
 
     return this.prisma.foodLogItem.create({
       data: {
@@ -63,6 +89,7 @@ export class DiaryService {
     if (!item || item.log.userId !== userId)
       throw new NotFoundException('Item no encontrado');
 
+    this.logger.log(`Actualizando item id=${itemId} para userId=${userId}`);
     return this.prisma.foodLogItem.update({
       where: { id: itemId },
       data: {
@@ -80,6 +107,7 @@ export class DiaryService {
     });
     if (!item || item.log.userId !== userId)
       throw new NotFoundException('Item no encontrado');
+    this.logger.log(`Eliminando item id=${itemId} para userId=${userId}`);
     await this.prisma.foodLogItem.delete({ where: { id: itemId } });
     return { deleted: true };
   }
@@ -192,8 +220,11 @@ export class DiaryService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
+  // B-03 FIX: validar que la fecha sea válida antes de usarla
   private parseDate(dateStr?: string): Date {
     const d = dateStr ? new Date(dateStr) : new Date();
+    if (isNaN(d.getTime()))
+      throw new BadRequestException(`Fecha inválida: "${dateStr}". Usa formato YYYY-MM-DD.`);
     d.setHours(0, 0, 0, 0);
     return d;
   }
@@ -243,6 +274,9 @@ export class DiaryService {
     }
 
     if (item.recipe) {
+      // NOTA (B-12): quantityG para recetas se trata como número de porciones.
+      // La convención es: quantityG=1 → 1 porción completa de la receta.
+      // Si el frontend envía gramos, esto requiere revisión de la convención UI.
       const portions = item.quantityG;
       const servings = item.recipe.servings || 1;
       for (const ri of item.recipe.items ?? []) {

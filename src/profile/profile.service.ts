@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLevel, Goal, Gender } from '@prisma/client';
 
@@ -13,6 +13,8 @@ interface UpdateProfileDto {
 
 @Injectable()
 export class ProfileService {
+  private readonly logger = new Logger(ProfileService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async getProfile(userId: string) {
@@ -21,17 +23,29 @@ export class ProfileService {
     return profile;
   }
 
+  // B-05 FIX: usa upsert para no fallar si el perfil no existe
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const data: any = { ...dto };
     if (dto.birthDate) data.birthDate = new Date(dto.birthDate);
 
-    const updated = await this.prisma.profile.update({
-      where: { userId },
-      data,
+    // Validar fecha de nacimiento si se provee
+    if (data.birthDate && isNaN(data.birthDate.getTime())) {
+      throw new BadRequestException('Fecha de nacimiento inválida');
+    }
+
+    const updated = await this.prisma.profile.upsert({
+      where:  { userId },
+      create: { userId, ...data },
+      update: data,
     });
 
     if (updated.weightKg && updated.heightCm && updated.birthDate && updated.gender) {
       const macros = this.calculateMacros(updated);
+      this.logger.log(
+        `Macros calculados para userId=${userId}: ` +
+        `cal=${macros.calorieTarget}, prot=${macros.proteinTarget}, ` +
+        `carbs=${macros.carbTarget}, fat=${macros.fatTarget}`,
+      );
       const final = await this.prisma.profile.update({
         where: { userId },
         data: macros,
@@ -50,7 +64,7 @@ export class ProfileService {
     // Cerrar el registro activo anterior
     await this.prisma.userGoal.updateMany({
       where: { userId, effectiveTo: null },
-      data: { effectiveTo: new Date() },
+      data:  { effectiveTo: new Date() },
     });
 
     // Crear nuevo registro activo
@@ -67,6 +81,7 @@ export class ProfileService {
         effectiveTo:   null,
       },
     });
+    this.logger.log(`Snapshot de metas guardado para userId=${userId}`);
   }
 
   async getGoalHistory(userId: string) {
@@ -77,7 +92,13 @@ export class ProfileService {
   }
 
   private calculateMacros(profile: any) {
+    // B-09: validar que birthDate no sea nulo ni en el futuro
+    if (!profile.birthDate)
+      throw new BadRequestException('Fecha de nacimiento requerida para calcular macros');
+
     const age = this.getAge(profile.birthDate);
+    if (age < 1 || age > 130)
+      throw new BadRequestException(`Edad calculada fuera de rango: ${age} años`);
 
     // Fórmula Mifflin-St Jeor
     let bmr: number;

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
@@ -7,6 +7,8 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private users: UsersService,
     private jwt: JwtService,
@@ -17,8 +19,10 @@ export class AuthService {
   async register(email: string, password: string, name: string) {
     const existing = await this.users.findByEmail(email);
     if (existing) throw new ConflictException('El email ya está registrado');
+    this.logger.log(`Registrando nuevo usuario: ${email}`);
     const user = await this.users.create(email, password, name);
     await this.prisma.profile.create({ data: { userId: user.id } });
+    this.logger.log(`Usuario registrado con id=${user.id}`);
     return this.generateTokens(user.id, user.email);
   }
 
@@ -27,30 +31,43 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Credenciales inválidas');
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Credenciales inválidas');
+    this.logger.log(`Login exitoso para userId=${user.id}`);
     return this.generateTokens(user.id, user.email);
   }
 
+  // B-01 FIX: refresh ahora hace lookup del usuario para obtener el email real
   async refresh(token: string) {
     const stored = await this.prisma.refreshToken.findUnique({ where: { token } });
     if (!stored || stored.expiresAt < new Date()) {
       throw new UnauthorizedException('Refresh token inválido o expirado');
     }
+
+    // Obtener usuario para incluir email correcto en el nuevo payload
+    const user = await this.users.findById(stored.userId);
+    if (!user) {
+      // Limpiar el token huérfano y rechazar
+      await this.prisma.refreshToken.delete({ where: { token } });
+      throw new UnauthorizedException('Usuario no encontrado para este refresh token');
+    }
+
+    this.logger.log(`Refresh token rotado para userId=${stored.userId}`);
     await this.prisma.refreshToken.delete({ where: { token } });
-    return this.generateTokens(stored.userId, '');
+    return this.generateTokens(user.id, user.email);
   }
 
   async logout(token: string) {
     await this.prisma.refreshToken.deleteMany({ where: { token } });
+    this.logger.log('Refresh token eliminado en logout');
   }
 
   private async generateTokens(userId: string, email: string) {
     const payload = { sub: userId, email };
     const accessToken = this.jwt.sign(payload, {
-      secret: this.config.get('JWT_ACCESS_SECRET'),
+      secret:    this.config.get('JWT_ACCESS_SECRET'),
       expiresIn: this.config.get('JWT_ACCESS_EXPIRES_IN'),
     });
     const refreshToken = this.jwt.sign(payload, {
-      secret: this.config.get('JWT_REFRESH_SECRET'),
+      secret:    this.config.get('JWT_REFRESH_SECRET'),
       expiresIn: this.config.get('JWT_REFRESH_EXPIRES_IN'),
     });
     const expiresAt = new Date();

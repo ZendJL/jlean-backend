@@ -2,7 +2,9 @@
  * FoodsService — Paso 4.2, 4.3, 4.4, 4.5
  * Servicio unificado: catálogo local + USDA + Open Food Facts.
  * Prioridad de búsqueda: local (presets + custom) → externo si se solicita.
- * Importación con deduplicación por (source, externalId).
+ *
+ * F-01 FIX: deduplicación robusta por (source + externalId) antes de importar.
+ * F-03 FIX: fallback a catálogo interno si USDA falla por red (no solo 429).
  */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
@@ -42,8 +44,9 @@ export class FoodsService {
 
   /**
    * source='local' → solo catálogo propio (presets + custom)
-   * source='usda'  → busca en USDA, con fallback a local si falla
-   * source='off'   → busca en OFF, con fallback a local si falla
+   * source='usda'  → busca en USDA; si falla (red/5xx) → fallback a local.
+   *                  Si falla con 429 → re-lanza para que el frontend avise al usuario.
+   * source='off'   → busca en OFF; mismo comportamiento que USDA.
    */
   async search(query: string, source: 'local' | 'usda' | 'off' = 'local') {
     if (source === 'usda') {
@@ -51,10 +54,10 @@ export class FoodsService {
         const results = await this.usda.search(query)
         return results.map(this.mapUsdaToView)
       } catch (err: any) {
-        // Si es 429, re-lanzar para que el controller lo propague al frontend
-        if (err?.status === 429) throw err
-        // Cualquier otro error → fallback al catálogo local
-        this.logger.warn(`USDA search failed, falling back to local: ${err?.message}`)
+        // 429: propagar para que el controller lo exponga al frontend
+        if (err?.status === 429 || err?.getStatus?.() === 429) throw err
+        // F-03: cualquier otro error de red / 5xx → fallback silencioso
+        this.logger.warn(`USDA search falló (${err?.message ?? err}), usando catálogo local como fallback`)
         return this.searchLocal(query)
       }
     }
@@ -64,8 +67,8 @@ export class FoodsService {
         const results = await this.off.search(query)
         return results.map(this.mapOffToView)
       } catch (err: any) {
-        if (err?.status === 429) throw err
-        this.logger.warn(`OFF search failed, falling back to local: ${err?.message}`)
+        if (err?.status === 429 || err?.getStatus?.() === 429) throw err
+        this.logger.warn(`OFF search falló (${err?.message ?? err}), usando catálogo local como fallback`)
         return this.searchLocal(query)
       }
     }
@@ -110,14 +113,29 @@ export class FoodsService {
   // ─── Importar desde USDA ─────────────────────────────────────────────────
 
   async importFromUsda(fdcId: string) {
-    // Deduplicación: si ya existe en BD, retornar
+    // F-01 FIX: deduplicación por (source=USDA + externalId=fdcId) — evita duplicados
+    // aunque el nombre cambie entre llamadas a la API.
     const existing = await this.prisma.food.findFirst({
       where: { source: FoodSource.USDA, externalId: String(fdcId) },
     })
-    if (existing) return existing
+    if (existing) {
+      this.logger.log(`USDA food fdcId=${fdcId} ya existe en BD (id=${existing.id}), retornando existente`)
+      return existing
+    }
 
-    const detail = await this.usda.getDetail(fdcId)
+    let detail: UsdaFood | null = null
+    try {
+      detail = await this.usda.getDetail(fdcId)
+    } catch (err: any) {
+      // F-03: si USDA no responde, no crashear — retornar null para que el caller decida
+      if (err?.status === 429 || err?.getStatus?.() === 429) throw err
+      this.logger.warn(`USDA getDetail fdcId=${fdcId} falló: ${err?.message}`)
+      throw new NotFoundException(`No se pudo obtener el alimento USDA ${fdcId}. Intenta más tarde.`)
+    }
+
     if (!detail) throw new NotFoundException(`USDA food ${fdcId} not found`)
+
+    this.logger.log(`Importando USDA food fdcId=${fdcId} → "${detail.description}"`)
 
     return this.prisma.food.create({
       data: {
@@ -144,11 +162,16 @@ export class FoodsService {
   // ─── Importar desde OFF ──────────────────────────────────────────────────
 
   private async importOffFood(offFood: OffFood) {
-    // Deduplicación
+    // F-01 FIX: deduplicación por (source=OFF + externalId=barcode)
     const existing = await this.prisma.food.findFirst({
       where: { source: FoodSource.OFF, externalId: offFood.barcode },
     })
-    if (existing) return existing
+    if (existing) {
+      this.logger.log(`OFF food barcode=${offFood.barcode} ya existe (id=${existing.id}), retornando existente`)
+      return existing
+    }
+
+    this.logger.log(`Importando OFF food barcode=${offFood.barcode} → "${offFood.name}"`)
 
     return this.prisma.food.create({
       data: {

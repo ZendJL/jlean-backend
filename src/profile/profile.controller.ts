@@ -22,4 +22,10 @@ export class ProfileController {
   daily(@Request() req: any) {
     return this.profile.getDaily(req.user.id);
   }
+
+  // GET /profile/goals — historial de metas
+  @Get('goals')
+  goalHistory(@Request() req: any) {
+    return this.profile.getGoalHistory(req.user.id);
+  }
 }

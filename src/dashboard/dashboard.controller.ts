@@ -9,6 +9,6 @@ export class DashboardController {
 
   @Get('today')
   getToday(@Request() req: any) {
-    return this.dashboardService.getToday(req.user.sub);
+    return this.dashboardService.getToday(req.user.id);
   }
 }

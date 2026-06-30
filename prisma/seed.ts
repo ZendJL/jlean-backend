@@ -6,11 +6,13 @@
  * suplementos deportivos. Macros por 100g salvo indicación.
  * Fuente de referencia: USDA FoodData Central.
  */
-import 'dotenv/config'; // carga .env antes de que Prisma lo lea
+import 'dotenv/config';
 import { PrismaClient, FoodSource, DataQuality } from '@prisma/client';
 
-// Prisma 5 lee DATABASE_URL del .env automáticamente vía dotenv/config
-const prisma = new PrismaClient();
+// Prisma 7 con prisma.config.ts requiere datasourceUrl explícito.
+// Cast a `any` porque los tipos bundleados aún no declaran la opción.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL } as any);
 
 const PRESETS: Array<{
   name: string;

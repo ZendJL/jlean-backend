@@ -2,15 +2,18 @@
  * Seed de presets básicos — Paso 4.1
  * Ejecutar: npx prisma db seed
  *
- * Workaround Prisma 7.8: se usa require() en lugar de import y se pasa {}
- * al constructor de PrismaClient para evitar el error de validación del cliente.
+ * Usa PrismaPg adapter igual que PrismaService porque el schema tiene
+ * driverAdapters en previewFeatures, lo que obliga a pasar un adapter.
  */
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('dotenv').config();
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PrismaClient } = require('@prisma/client');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { PrismaPg } = require('@prisma/adapter-pg');
 
-const prisma = new PrismaClient({});
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
 
 const PRESETS = [
   // ─── Proteínas animales ──────────────────────────────────────────────────

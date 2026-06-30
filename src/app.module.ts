@@ -12,6 +12,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SupplementsModule } from './supplements/supplements.module';
 import { SleepModule } from './sleep/sleep.module';
 import { FastingModule } from './fasting/fasting.module';
+import { DayTypesModule } from './day-types/day-types.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { FastingModule } from './fasting/fasting.module';
     SupplementsModule,
     SleepModule,
     FastingModule,
+    DayTypesModule,
   ],
 })
 export class AppModule {}

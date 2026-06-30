@@ -7,17 +7,23 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Users ────────────────────────────────────────────────────────────────────
+
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
+  id            String          @id @default(uuid())
+  email         String          @unique
   passwordHash  String
   name          String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   profile       Profile?
   recipes       Recipe[]
   foodLogs      FoodLog[]
   refreshTokens RefreshToken[]
+  supplements   Supplement[]
+  supplementLogs SupplementLog[]
+  sleepEntries  SleepEntry[]
+  fastingConfig FastingConfig?
   @@map("users")
 }
 
@@ -30,6 +36,8 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("refresh_tokens")
 }
+
+// ─── Profile ──────────────────────────────────────────────────────────────────
 
 model Profile {
   id            String        @id @default(uuid())
@@ -69,6 +77,8 @@ enum Goal {
   GAIN
 }
 
+// ─── Foods ────────────────────────────────────────────────────────────────────
+
 model Food {
   id           String        @id @default(uuid())
   name         String
@@ -86,19 +96,34 @@ model Food {
   sugar        Float?
   sodium       Float?
   saturatedFat Float?
+  caffeineMg   Float?
+  alcoholG     Float?
+  qualityStatus DataQuality @default(COMPLETE)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   recipeItems  RecipeItem[]
   foodLogItems FoodLogItem[]
   @@unique([source, externalId])
+  @@index([name])
+  @@index([barcode])
   @@map("foods")
 }
 
 enum FoodSource {
   CUSTOM
+  PRESET
   USDA
-  OPEN_FOOD_FACTS
+  OFF
 }
+
+enum DataQuality {
+  COMPLETE
+  PARTIAL
+  UNVERIFIED
+  CONFLICTED
+}
+
+// ─── Recipes ──────────────────────────────────────────────────────────────────
 
 model Recipe {
   id           String        @id @default(uuid())
@@ -125,6 +150,8 @@ model RecipeItem {
   @@map("recipe_items")
 }
 
+// ─── Daily Log ────────────────────────────────────────────────────────────────
+
 model FoodLog {
   id        String        @id @default(uuid())
   userId    String
@@ -133,20 +160,27 @@ model FoodLog {
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   items     FoodLogItem[]
   @@unique([userId, date])
+  @@index([userId, date])
   @@map("food_logs")
 }
 
 model FoodLogItem {
-  id        String   @id @default(uuid())
-  logId     String
-  foodId    String?
-  recipeId  String?
-  meal      Meal     @default(OTHER)
-  quantityG Float
-  createdAt DateTime @default(now())
-  log       FoodLog  @relation(fields: [logId], references: [id], onDelete: Cascade)
-  food      Food?    @relation(fields: [foodId], references: [id])
-  recipe    Recipe?  @relation(fields: [recipeId], references: [id])
+  id           String   @id @default(uuid())
+  logId        String
+  foodId       String?
+  recipeId     String?
+  meal         Meal     @default(OTHER)
+  quantityG    Float
+  // snapshot inmutable al momento del registro
+  snapshotName     String?
+  snapshotCalories Float?
+  snapshotProtein  Float?
+  snapshotCarbs    Float?
+  snapshotFat      Float?
+  createdAt    DateTime @default(now())
+  log          FoodLog  @relation(fields: [logId], references: [id], onDelete: Cascade)
+  food         Food?    @relation(fields: [foodId], references: [id])
+  recipe       Recipe?  @relation(fields: [recipeId], references: [id])
   @@map("food_log_items")
 }
 
@@ -156,4 +190,67 @@ enum Meal {
   DINNER
   SNACK
   OTHER
+}
+
+// ─── Supplements ─────────────────────────────────────────────────────────────
+
+model Supplement {
+  id               String          @id @default(uuid())
+  userId           String
+  name             String
+  doseAmount       Float
+  doseUnit         String
+  frequency        String?
+  timing           String?
+  notes            String?
+  caffeinePerDoseMg Float?
+  active           Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs             SupplementLog[]
+  @@map("supplements")
+}
+
+model SupplementLog {
+  id           String     @id @default(uuid())
+  userId       String
+  supplementId String
+  takenAt      DateTime   @default(now())
+  notes        String?
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supplement   Supplement @relation(fields: [supplementId], references: [id], onDelete: Cascade)
+  @@map("supplement_logs")
+}
+
+// ─── Sleep ────────────────────────────────────────────────────────────────────
+
+model SleepEntry {
+  id            String   @id @default(uuid())
+  userId        String
+  bedtime       DateTime
+  wakeTime      DateTime
+  durationMin   Int
+  qualityScore  Float?
+  deepSleepMin  Int?
+  remSleepMin   Int?
+  awakensCount  Int?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("sleep_entries")
+}
+
+// ─── Fasting ─────────────────────────────────────────────────────────────────
+
+model FastingConfig {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  fastHours    Int
+  eatHours     Int
+  eatStartHour Int
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("fasting_configs")
 }

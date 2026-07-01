@@ -2,11 +2,22 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DayTypesService } from '../day-types/day-types.service';
 import { Meal } from '@prisma/client';
+
+export interface DiaryAlert {
+  type:
+    | 'CAFFEINE_LIMIT'
+    | 'CAFFEINE_LATE'
+    | 'ALCOHOL_DETECTED'
+    | 'SODIUM_HIGH'
+    | 'ALLERGEN_DETECTED';
+  message: string;
+}
 
 interface AddItemDto {
   foodId?: string;
@@ -19,6 +30,12 @@ interface UpdateItemDto {
   quantityG?: number;
   meal?: Meal;
 }
+
+/** Constantes de alertas nutricionales (Paso 7.4) */
+const CAFFEINE_DAILY_LIMIT_MG  = 400;
+const CAFFEINE_LATE_LIMIT_MG   = 200;  // por encima de esto es tarde
+const CAFFEINE_LATE_HOUR       = 18;   // >= 18:00 → alerta "too late for caffeine"
+const SODIUM_HIGH_MG           = 2300;
 
 @Injectable()
 export class DiaryService {
@@ -50,30 +67,107 @@ export class DiaryService {
       throw new BadRequestException('Se requiere foodId o recipeId');
 
     // B-04: verificar que la referencia existe antes de insertar
+    let food: any = null;
+    let recipe: any = null;
+
     if (dto.foodId) {
-      const food = await this.prisma.food.findUnique({ where: { id: dto.foodId } });
+      food = await this.prisma.food.findUnique({ where: { id: dto.foodId } });
       if (!food)
         throw new NotFoundException(`Alimento con id=${dto.foodId} no encontrado`);
     }
     if (dto.recipeId) {
-      const recipe = await this.prisma.recipe.findUnique({ where: { id: dto.recipeId } });
+      recipe = await this.prisma.recipe.findUnique({
+        where:   { id: dto.recipeId },
+        include: { items: { include: { food: true } } },
+      });
       if (!recipe)
         throw new NotFoundException(`Receta con id=${dto.recipeId} no encontrada`);
     }
 
     const date = this.parseDate(dateStr);
     let log = await this.prisma.foodLog.findUnique({
-      where: { userId_date: { userId, date } },
+      where:   { userId_date: { userId, date } },
+      include: this.logInclude(),
     });
-    if (!log) log = await this.prisma.foodLog.create({ data: { userId, date } });
+    if (!log) {
+      log = await this.prisma.foodLog.create({
+        data:    { userId, date },
+        include: this.logInclude(),
+      });
+    }
+
+    // ── Paso 7.4: Motor de alertas ────────────────────────────────────────
+    const newItemMock = { food, recipe, quantityG: dto.quantityG, meal: dto.meal ?? 'OTHER' };
+    const newMacros   = this.calcItemMacros(newItemMock);
+    const newNutrients = this.calcItemNutrients(newItemMock);
+
+    // Consumo previo del día (suma de todos los ítems ya en el log)
+    const prevNutrients = this.calcConsumedNutrients(log?.items ?? []);
+
+    const totalCaffeine = (prevNutrients.caffeineMg ?? 0) + (newNutrients.caffeineMg ?? 0);
+    const totalAlcohol  = (prevNutrients.alcoholG   ?? 0) + (newNutrients.alcoholG   ?? 0);
+    const totalSodium   = (prevNutrients.sodiumMg   ?? 0) + (newNutrients.sodiumMg   ?? 0);
+
+    const currentHour = new Date().getHours();
+    const alerts: DiaryAlert[] = [];
+
+    // Cafeína > 400mg/día
+    if (totalCaffeine > CAFFEINE_DAILY_LIMIT_MG) {
+      alerts.push({
+        type: 'CAFFEINE_LIMIT',
+        message: `Daily caffeine limit exceeded (${Math.round(totalCaffeine)}mg / ${CAFFEINE_DAILY_LIMIT_MG}mg recommended).`,
+      });
+    }
+
+    // Cafeína > 200mg después de las 18:00
+    if (totalCaffeine > CAFFEINE_LATE_LIMIT_MG && currentHour >= CAFFEINE_LATE_HOUR) {
+      alerts.push({
+        type: 'CAFFEINE_LATE',
+        message: `Consuming caffeine after ${CAFFEINE_LATE_HOUR}:00 may affect your sleep quality.`,
+      });
+    }
+
+    // Alcohol detectado
+    if (totalAlcohol > 0) {
+      alerts.push({
+        type: 'ALCOHOL_DETECTED',
+        message: `This item contains alcohol (${newNutrients.alcoholG?.toFixed(1)}g). Total today: ${totalAlcohol.toFixed(1)}g.`,
+      });
+    }
+
+    // Sodio alto (> 2300mg/día)
+    if (totalSodium > SODIUM_HIGH_MG) {
+      alerts.push({
+        type: 'SODIUM_HIGH',
+        message: `Daily sodium is high (${Math.round(totalSodium)}mg). Recommended max: ${SODIUM_HIGH_MG}mg.`,
+      });
+    }
+
+    // Alérgenos: si el alimento tiene un alérgeno que el perfil del usuario declara
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    const userAllergens: string[] = (profile as any)?.allergens ?? [];
+    const foodAllergens: string[] = [
+      ...(food?.allergens ?? []),
+      ...(recipe?.items?.flatMap((ri: any) => ri.food?.allergens ?? []) ?? []),
+    ];
+    const matched = foodAllergens.filter((a: string) =>
+      userAllergens.some((ua) => ua.toLowerCase() === a.toLowerCase()),
+    );
+    if (matched.length > 0) {
+      // Los alérgenos BLOQUEAN la inserción (spec: "Alergias bloquean el alimento")
+      throw new ForbiddenException(
+        `This item contains allergens you've declared: ${matched.join(', ')}. Item not added.`,
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     this.logger.log(
       `Agregando item al log ${date.toISOString().split('T')[0]} ` +
       `(userId=${userId}, foodId=${dto.foodId ?? '-'}, recipeId=${dto.recipeId ?? '-'}, ` +
-      `quantityG=${dto.quantityG}, meal=${dto.meal ?? 'OTHER'})`,
+      `quantityG=${dto.quantityG}, meal=${dto.meal ?? 'OTHER'}, alerts=${alerts.length})`,
     );
 
-    return this.prisma.foodLogItem.create({
+    const item = await this.prisma.foodLogItem.create({
       data: {
         logId:     log.id,
         foodId:    dto.foodId   ?? null,
@@ -83,6 +177,8 @@ export class DiaryService {
       },
       include: this.itemInclude(),
     });
+
+    return { item, macros: newMacros, alerts };
   }
 
   async updateItem(userId: string, itemId: string, dto: UpdateItemDto) {
@@ -120,7 +216,6 @@ export class DiaryService {
   async getSummary(userId: string, dateStr?: string) {
     const date = this.parseDate(dateStr);
 
-    // Obtener targets ajustados (considera tipo de día si hay uno asignado)
     const adjusted = await this.dayTypes.getAdjustedTargets(userId, date);
 
     const log = await this.prisma.foodLog.findUnique({
@@ -133,15 +228,13 @@ export class DiaryService {
 
     return {
       date: date.toISOString().split('T')[0],
-      // Targets ajustados al tipo de día (o base si no hay asignación)
       targets,
-      // Contexto del ajuste para que el frontend muestre "Training Day +15%"
       dayType: adjusted.dayType
         ? {
-            name:          adjusted.dayType.name,
-            color:         adjusted.dayType.color,
-            tdeAdjustPct:  adjusted.dayType.tdeAdjustPct,
-            adjustFactor:  adjusted.factor,
+            name:         adjusted.dayType.name,
+            color:        adjusted.dayType.color,
+            tdeAdjustPct: adjusted.dayType.tdeAdjustPct,
+            adjustFactor: adjusted.factor,
           }
         : null,
       consumed,
@@ -210,7 +303,7 @@ export class DiaryService {
       { calories: 0, protein: 0, carbs: 0, fat: 0 },
     );
 
-    const count = days.length;
+    const count    = days.length;
     const averages = {
       calories: this.round(totals.calories / count),
       protein:  this.round(totals.protein  / count),
@@ -235,7 +328,6 @@ export class DiaryService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  // B-03: validar que la fecha sea válida antes de usarla
   private parseDate(dateStr?: string): Date {
     const d = dateStr ? new Date(dateStr) : new Date();
     if (isNaN(d.getTime()))
@@ -277,27 +369,28 @@ export class DiaryService {
     };
   }
 
-  private calcItemMacros(item: any) {
+  /** Calcula macros (cal/prot/carbs/fat) de un ítem usando ratio de gramos */
+  calcItemMacros(item: any) {
     const r = { calories: 0, protein: 0, carbs: 0, fat: 0 };
 
     if (item.food) {
-      const ratio = item.quantityG / (item.food.servingSizeG || 100);
-      r.calories = item.food.calories * ratio;
-      r.protein  = item.food.protein  * ratio;
-      r.carbs    = item.food.carbs    * ratio;
-      r.fat      = item.food.fat      * ratio;
+      const ratio  = item.quantityG / (item.food.servingSizeG || 100);
+      r.calories  += item.food.calories * ratio;
+      r.protein   += item.food.protein  * ratio;
+      r.carbs     += item.food.carbs    * ratio;
+      r.fat       += item.food.fat      * ratio;
     }
 
     if (item.recipe) {
       const portions = item.quantityG;
       const servings = item.recipe.servings || 1;
       for (const ri of item.recipe.items ?? []) {
-        const grams = ri.quantityG * (portions / servings);
-        const ratio = grams / (ri.food.servingSizeG || 100);
-        r.calories += ri.food.calories * ratio;
-        r.protein  += ri.food.protein  * ratio;
-        r.carbs    += ri.food.carbs    * ratio;
-        r.fat      += ri.food.fat      * ratio;
+        const grams  = ri.quantityG * (portions / servings);
+        const ratio  = grams / (ri.food.servingSizeG || 100);
+        r.calories  += ri.food.calories * ratio;
+        r.protein   += ri.food.protein  * ratio;
+        r.carbs     += ri.food.carbs    * ratio;
+        r.fat       += ri.food.fat      * ratio;
       }
     }
 
@@ -309,7 +402,50 @@ export class DiaryService {
     };
   }
 
-  private calcConsumed(items: any[]) {
+  /** Extrae nutrientes relevantes para alertas (cafeína, alcohol, sodio) */
+  private calcItemNutrients(item: any): { caffeineMg: number; alcoholG: number; sodiumMg: number } {
+    const r = { caffeineMg: 0, alcoholG: 0, sodiumMg: 0 };
+
+    const extractFromFood = (food: any, ratio: number) => {
+      if (!food) return;
+      r.caffeineMg += (food.caffeineMg ?? 0) * ratio;
+      r.alcoholG   += (food.alcoholG   ?? 0) * ratio;
+      r.sodiumMg   += (food.sodiumMg   ?? 0) * ratio;
+    };
+
+    if (item.food) {
+      const ratio = item.quantityG / (item.food.servingSizeG || 100);
+      extractFromFood(item.food, ratio);
+    }
+
+    if (item.recipe) {
+      const servings = item.recipe.servings || 1;
+      for (const ri of item.recipe.items ?? []) {
+        const grams = ri.quantityG * (item.quantityG / servings);
+        const ratio = grams / (ri.food.servingSizeG || 100);
+        extractFromFood(ri.food, ratio);
+      }
+    }
+
+    return r;
+  }
+
+  /** Suma los nutrientes de alerta de todos los ítems previos del log */
+  private calcConsumedNutrients(items: any[]): { caffeineMg: number; alcoholG: number; sodiumMg: number } {
+    return items.reduce(
+      (acc, item) => {
+        const n = this.calcItemNutrients(item);
+        return {
+          caffeineMg: acc.caffeineMg + n.caffeineMg,
+          alcoholG:   acc.alcoholG   + n.alcoholG,
+          sodiumMg:   acc.sodiumMg   + n.sodiumMg,
+        };
+      },
+      { caffeineMg: 0, alcoholG: 0, sodiumMg: 0 },
+    );
+  }
+
+  calcConsumed(items: any[]) {
     const t = { calories: 0, protein: 0, carbs: 0, fat: 0 };
     for (const item of items) {
       const m = this.calcItemMacros(item);

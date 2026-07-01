@@ -5,10 +5,10 @@
  *
  * F-01 FIX: deduplicación robusta por (source + externalId) antes de importar.
  * F-03 FIX: fallback a catálogo interno si USDA falla por red (no solo 429).
- * F-04 FIX: mapUsdaToView y mapOffToView como arrow functions estáticas para evitar
- *           pérdida de contexto `this` al pasar como callbacks a .map().
- * F-05 FIX: searchLocal ordenaba por source:'asc' (CUSTOM→OFF→PRESET→USDA alfabético).
- *           Ahora ordena en memoria: PRESET primero, luego CUSTOM, OFF, USDA.
+ * F-04 FIX: mapUsdaToView y mapOffToView son ahora static public — evita pérdida
+ *           de contexto 'this' al pasar como callbacks a .map().
+ * F-05 FIX: sort en memoria con prioridad PRESET→CUSTOM→OFF→USDA en lugar de
+ *           orderBy source:'asc' que ordena alfabético (CUSTOM→OFF→PRESET→USDA).
  */
 import { Injectable, NotFoundException, Logger } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
@@ -34,7 +34,7 @@ export interface CreateFoodDto {
   barcode?: string
 }
 
-// F-05: orden de prioridad para source en catálogo local
+// F-05: prioridad de fuente para ordenar resultados locales
 const SOURCE_PRIORITY: Record<string, number> = {
   PRESET: 0,
   CUSTOM: 1,
@@ -64,10 +64,12 @@ export class FoodsService {
     if (source === 'usda') {
       try {
         const results = await this.usda.search(query)
-        // F-04: arrow function estática — no usa this, no pierde contexto
-        return results.map((f) => FoodsService.mapUsdaToView(f))
+        // F-04: usar método estático para no perder contexto en .map()
+        return results.map(FoodsService.mapUsdaToView)
       } catch (err: any) {
+        // 429: propagar para que el controller lo exponga al frontend
         if (err?.status === 429 || err?.getStatus?.() === 429) throw err
+        // F-03: cualquier otro error de red / 5xx → fallback silencioso
         this.logger.warn(`USDA search falló (${err?.message ?? err}), usando catálogo local como fallback`)
         return this.searchLocal(query)
       }
@@ -76,8 +78,8 @@ export class FoodsService {
     if (source === 'off') {
       try {
         const results = await this.off.search(query)
-        // F-04: arrow function estática
-        return results.map((f) => FoodsService.mapOffToView(f))
+        // F-04: usar método estático para no perder contexto en .map()
+        return results.map(FoodsService.mapOffToView)
       } catch (err: any) {
         if (err?.status === 429 || err?.getStatus?.() === 429) throw err
         this.logger.warn(`OFF search falló (${err?.message ?? err}), usando catálogo local como fallback`)
@@ -89,15 +91,15 @@ export class FoodsService {
   }
 
   private async searchLocal(query: string) {
-    // F-05: traemos todos los resultados ordenados por nombre y luego ordenamos
-    // en memoria por prioridad de source: PRESET → CUSTOM → OFF → USDA
-    const rows = await this.prisma.food.findMany({
+    const foods = await this.prisma.food.findMany({
       where:   { name: { contains: query, mode: 'insensitive' } },
-      orderBy: { name: 'asc' },
+      // F-05: traemos sin orderBy de BD y ordenamos en memoria con prioridad correcta
+      orderBy: [{ name: 'asc' }],
       take: 50,
     })
 
-    return rows.sort((a, b) => {
+    // F-05: PRESET=0, CUSTOM=1, OFF=2, USDA=3 — sort estable
+    return foods.sort((a, b) => {
       const pa = SOURCE_PRIORITY[a.source] ?? 99
       const pb = SOURCE_PRIORITY[b.source] ?? 99
       if (pa !== pb) return pa - pb
@@ -108,9 +110,11 @@ export class FoodsService {
   // ─── Por barcode ─────────────────────────────────────────────────────────
 
   async getByBarcode(barcode: string) {
+    // 1. Buscar en caché local
     const cached = await this.prisma.food.findFirst({ where: { barcode } })
     if (cached) return cached
 
+    // 2. Fallback: OFF por barcode → importar y persistir
     const offFood = await this.off.getByBarcode(barcode)
     if (!offFood) throw new NotFoundException(`Food with barcode ${barcode} not found`)
 
@@ -128,6 +132,7 @@ export class FoodsService {
   // ─── Importar desde USDA ─────────────────────────────────────────────────
 
   async importFromUsda(fdcId: string) {
+    // F-01 FIX: deduplicación por (source=USDA + externalId=fdcId)
     const existing = await this.prisma.food.findFirst({
       where: { source: FoodSource.USDA, externalId: String(fdcId) },
     })
@@ -174,6 +179,7 @@ export class FoodsService {
   // ─── Importar desde OFF ──────────────────────────────────────────────────
 
   private async importOffFood(offFood: OffFood) {
+    // F-01 FIX: deduplicación por (source=OFF + externalId=barcode)
     const existing = await this.prisma.food.findFirst({
       where: { source: FoodSource.OFF, externalId: offFood.barcode },
     })
@@ -218,8 +224,7 @@ export class FoodsService {
     })
   }
 
-  // ─── Mappers para vistas (no persisten) ──────────────────────────────────
-  // F-04: métodos estáticos para que .map(FoodsService.mapUsdaToView) no pierda `this`
+  // ─── Mappers para vistas — F-04: static public para evitar pérdida de 'this' ───
 
   static mapUsdaToView(f: UsdaFood) {
     return {

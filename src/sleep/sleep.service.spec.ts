@@ -1,61 +1,69 @@
-/**
- * Tests del SleepService — Fase 12.1
- * Cubre: create (validación), findAll y getLatest.
- */
+import { Test, TestingModule } from '@nestjs/testing';
+import { SleepService } from './sleep.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { BadRequestException } from '@nestjs/common';
 
-let SleepService: any;
-try {
-  SleepService = require('./sleep.service').SleepService;
-} catch {
-  SleepService = null;
-}
-
-const ENTRY_MOCK = {
-  id: 'se-1', userId: 'user-1',
-  bedtime: new Date('2026-06-29T23:00:00Z'),
-  wakeTime: new Date('2026-06-30T07:00:00Z'),
-  durationH: 8,
-  quality: 4,
-  notes: null,
-  createdAt: new Date(),
+const prismaMock = {
+  sleepEntry: {
+    create:   jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    delete:   jest.fn(),
+  },
 };
 
 describe('SleepService', () => {
-  if (!SleepService) {
-    it.todo('SleepService no encontrado — verificar path');
-    return;
-  }
+  let service: SleepService;
 
-  let service: any;
-  let prisma: any;
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SleepService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
 
-  beforeEach(() => {
-    prisma = {
-      sleepEntry: {
-        create:    jest.fn().mockResolvedValue(ENTRY_MOCK),
-        findMany:  jest.fn().mockResolvedValue([ENTRY_MOCK]),
-        findFirst: jest.fn().mockResolvedValue(ENTRY_MOCK),
-      },
-    };
-    service = new SleepService(prisma);
+    service = module.get<SleepService>(SleepService);
+    jest.clearAllMocks();
   });
 
   it('create registra una entrada de sueño', async () => {
-    const dto = { bedtime: '2026-06-29T23:00:00Z', wakeTime: '2026-06-30T07:00:00Z', quality: 4 };
-    const result = await service.create('user-1', dto);
-    expect(result.durationH).toBe(8);
-    expect(prisma.sleepEntry.create).toHaveBeenCalled();
+    const dto = {
+      bedtime:  '2026-01-15T23:00:00.000Z',
+      wakeTime: '2026-01-16T07:00:00.000Z',
+    };
+    const entry = {
+      id: 'sleep-1',
+      userId: 'user-1',
+      bedtime: new Date(dto.bedtime),
+      wakeTime: new Date(dto.wakeTime),
+      durationMinutes: 480,
+      quality: null,
+    };
+    prismaMock.sleepEntry.create.mockResolvedValue(entry);
+
+    const result = await service.create('user-1', dto as any);
+    expect(result.durationMinutes).toBe(480);
   });
 
-  it('findAll retorna todas las entradas del usuario', async () => {
-    const result = await service.findAll('user-1');
-    expect(Array.isArray(result)).toBe(true);
+  it('findRecent retorna entradas del usuario', async () => {
+    prismaMock.sleepEntry.findMany.mockResolvedValue([
+      { id: 'sleep-1', durationMinutes: 480 },
+      { id: 'sleep-2', durationMinutes: 420 },
+    ]);
+
+    const result = await service.findRecent('user-1');
+    expect(result).toHaveLength(2);
   });
 
-  it('getLatest retorna la entrada más reciente', async () => {
-    const result = await service.getLatest('user-1');
-    expect(result).not.toBeNull();
-    expect(result.id).toBe('se-1');
+  it('lanza BadRequestException si wakeTime es anterior a bedtime', async () => {
+    const dto = {
+      bedtime:  '2026-01-16T07:00:00.000Z',
+      wakeTime: '2026-01-15T23:00:00.000Z', // invertido
+    };
+
+    await expect(
+      service.create('user-1', dto as any),
+    ).rejects.toThrow(BadRequestException);
   });
 });

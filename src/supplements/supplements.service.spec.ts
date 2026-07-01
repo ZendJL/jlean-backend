@@ -1,65 +1,74 @@
-/**
- * Tests del SupplementsService — Fase 12.1
- * Cubre: CRUD básico y validaciones de propiedad.
- */
+import { Test, TestingModule } from '@nestjs/testing';
+import { SupplementsService } from './supplements.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundException } from '@nestjs/common';
 
-// Cargamos el servicio dinámicamente para evitar errores de módulo
-let SupplementsService: any;
-try {
-  SupplementsService = require('./supplements.service').SupplementsService;
-} catch {
-  SupplementsService = null;
-}
-
-const SUPP_MOCK = { id: 's-1', userId: 'user-1', name: 'Creatine', dosage: 5, unit: 'g', active: true };
+const prismaMock = {
+  supplement: {
+    findMany:  jest.fn(),
+    findFirst: jest.fn(),
+    create:    jest.fn(),
+    update:    jest.fn(),
+    delete:    jest.fn(),
+  },
+  supplementLog: {
+    create:   jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+  },
+};
 
 describe('SupplementsService', () => {
-  if (!SupplementsService) {
-    it.todo('SupplementsService no encontrado — verificar path');
-    return;
-  }
+  let service: SupplementsService;
 
-  let service: any;
-  let prisma: any;
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SupplementsService,
+        { provide: PrismaService, useValue: prismaMock },
+      ],
+    }).compile();
 
-  beforeEach(() => {
-    prisma = {
-      supplement: {
-        findMany: jest.fn().mockResolvedValue([SUPP_MOCK]),
-        findFirst: jest.fn(),
-        create: jest.fn().mockResolvedValue(SUPP_MOCK),
-        update: jest.fn().mockResolvedValue(SUPP_MOCK),
-        delete: jest.fn().mockResolvedValue(SUPP_MOCK),
-      },
-      supplementLog: {
-        create: jest.fn().mockResolvedValue({ id: 'sl-1', supplementId: 's-1', userId: 'user-1', takenAt: new Date() }),
-        findMany: jest.fn().mockResolvedValue([]),
-      },
-    };
-    service = new SupplementsService(prisma);
+    service = module.get<SupplementsService>(SupplementsService);
+    jest.clearAllMocks();
   });
 
   it('findAll retorna los suplementos del usuario', async () => {
+    const supplements = [
+      { id: 's-1', userId: 'user-1', name: 'Whey Protein', doseMg: 25000 },
+      { id: 's-2', userId: 'user-1', name: 'Creatine',    doseMg: 5000 },
+    ];
+    prismaMock.supplement.findMany.mockResolvedValue(supplements);
+
     const result = await service.findAll('user-1');
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('Creatine');
+    expect(result).toHaveLength(2);
+    expect(prismaMock.supplement.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'user-1' } }),
+    );
   });
 
-  it('create crea un suplemento nuevo', async () => {
-    const result = await service.create('user-1', { name: 'Creatine', dosage: 5, unit: 'g' });
-    expect(result.name).toBe('Creatine');
-    expect(prisma.supplement.create).toHaveBeenCalled();
+  it('create agrega un suplemento nuevo', async () => {
+    const dto = { name: 'Vitamin D', doseMg: 2000, frequency: 'DAILY' };
+    const created = { id: 's-3', userId: 'user-1', ...dto };
+    prismaMock.supplement.create.mockResolvedValue(created);
+
+    const result = await service.create('user-1', dto as any);
+    expect(result.name).toBe('Vitamin D');
   });
 
   it('remove lanza NotFoundException si el suplemento no pertenece al usuario', async () => {
-    prisma.supplement.findFirst.mockResolvedValue(null);
-    await expect(service.remove('user-1', 's-99')).rejects.toThrow(NotFoundException);
+    prismaMock.supplement.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.remove('user-1', 'supplement-inexistente'),
+    ).rejects.toThrow(NotFoundException);
   });
 
-  it('remove elimina y retorna { deleted: true }', async () => {
-    prisma.supplement.findFirst.mockResolvedValue(SUPP_MOCK);
-    const result = await service.remove('user-1', 's-1');
-    expect(result).toEqual({ deleted: true });
+  it('logTaken registra la toma de un suplemento', async () => {
+    prismaMock.supplement.findFirst.mockResolvedValue({ id: 's-1', userId: 'user-1', name: 'Whey' });
+    prismaMock.supplementLog.create.mockResolvedValue({ id: 'log-1', supplementId: 's-1', takenAt: new Date() });
+
+    const result = await service.logTaken('user-1', 's-1');
+    expect(result).toHaveProperty('id', 'log-1');
   });
 });

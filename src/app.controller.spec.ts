@@ -1,46 +1,55 @@
 /**
  * Tests del AppController — Fase 12.1
- * Cubre: GET / y GET /health.
+ * Cubre: GET / (hello) y GET /health con monitor mock.
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { ExternalApiMonitorService } from './common/services/external-api-monitor.service';
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
+import { ExternalApiMonitorService } from './common/services/external-api-monitor.service'
+
+function buildController(monitorOverrides: any = {}) {
+  const appService = new AppService()
+  const monitor: any = {
+    getSummary: jest.fn().mockReturnValue({ USDA: { success: 10, rateLimited: 0 }, OFF: { success: 5, rateLimited: 1 } }),
+    record: jest.fn(),
+    ...monitorOverrides,
+  }
+  return new AppController(appService, monitor as ExternalApiMonitorService)
+}
 
 describe('AppController', () => {
-  let controller: AppController;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [AppController],
-      providers: [
-        AppService,
-        {
-          provide: ExternalApiMonitorService,
-          useValue: {
-            getSummary: jest.fn().mockReturnValue({ USDA: { total: 0, errors: 0 }, OFF: { total: 0, errors: 0 } }),
-            record: jest.fn(),
-          },
-        },
-      ],
-    }).compile();
-    controller = module.get<AppController>(AppController);
-  });
+  it('está definido', () => {
+    expect(buildController()).toBeDefined()
+  })
 
-  it('GET / retorna el mensaje de bienvenida', () => {
-    expect(controller.getHello()).toBeTruthy();
-  });
+  describe('GET / (getHello)', () => {
+    it('retorna el string de bienvenida', () => {
+      const ctrl = buildController()
+      expect(ctrl.getHello()).toBe('Hello World!')
+    })
+  })
 
-  it('GET /health retorna status ok con timestamp válido', () => {
-    const result = controller.health();
-    expect(result.status).toBe('ok');
-    expect(new Date(result.timestamp).getTime()).not.toBeNaN();
-  });
+  describe('GET /health', () => {
+    it('retorna status ok y timestamp ISO', () => {
+      const ctrl = buildController()
+      const result = ctrl.health()
+      expect(result.status).toBe('ok')
+      expect(result.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    })
 
-  it('GET /health incluye resumen de APIs externas', () => {
-    const result = controller.health();
-    expect(result.externalApis).toBeDefined();
-    expect(result.externalApis).toHaveProperty('USDA');
-    expect(result.externalApis).toHaveProperty('OFF');
-  });
-});
+    it('incluye resumen de APIs externas del monitor', () => {
+      const ctrl = buildController()
+      const result = ctrl.health()
+      expect(result.externalApis).toBeDefined()
+      expect(result.externalApis).toHaveProperty('USDA')
+      expect(result.externalApis).toHaveProperty('OFF')
+    })
+
+    it('llama a monitor.getSummary exactamente una vez', () => {
+      const getSummaryMock = jest.fn().mockReturnValue({})
+      const ctrl = buildController({ getSummary: getSummaryMock })
+      ctrl.health()
+      expect(getSummaryMock).toHaveBeenCalledTimes(1)
+    })
+  })
+})

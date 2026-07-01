@@ -3,10 +3,8 @@ import { FastingService } from './fasting.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const prismaMock = {
-  fastingWindow: {
-    findFirst:  jest.fn(),
-    create:     jest.fn(),
-    update:     jest.fn(),
+  fastingConfig: {
+    findUnique: jest.fn(),
     upsert:     jest.fn(),
   },
 };
@@ -26,49 +24,90 @@ describe('FastingService', () => {
     jest.clearAllMocks();
   });
 
-  it('getWindow retorna la ventana activa del usuario', async () => {
-    const window = { id: 'fw-1', userId: 'user-1', startHour: 12, durationHours: 16, active: true };
-    prismaMock.fastingWindow.findFirst.mockResolvedValue(window);
+  // ─ getConfig ─────────────────────────────────────────────────
+  describe('getConfig()', () => {
+    it('retorna la configuración de ayuno del usuario', async () => {
+      const config = { id: 'fc-1', userId: 'user-1', fastHours: 16, eatHours: 8, eatStartHour: 12, active: true };
+      prismaMock.fastingConfig.findUnique.mockResolvedValue(config);
 
-    const result = await service.getWindow('user-1');
-    expect(result?.startHour).toBe(12);
-    expect(result?.durationHours).toBe(16);
+      const result = await service.getConfig('user-1');
+      expect(result?.fastHours).toBe(16);
+      expect(result?.eatStartHour).toBe(12);
+    });
+
+    it('retorna null si no hay configuración', async () => {
+      prismaMock.fastingConfig.findUnique.mockResolvedValue(null);
+
+      const result = await service.getConfig('user-1');
+      expect(result).toBeNull();
+    });
   });
 
-  it('getWindow retorna null si no hay ventana configurada', async () => {
-    prismaMock.fastingWindow.findFirst.mockResolvedValue(null);
+  // ─ setConfig ─────────────────────────────────────────────────
+  describe('setConfig()', () => {
+    it('crea o actualiza la configuración de ayuno con upsert', async () => {
+      const dto    = { fastHours: 16, eatHours: 8, eatStartHour: 12 };
+      const upserted = { id: 'fc-1', userId: 'user-1', ...dto, active: true };
+      prismaMock.fastingConfig.upsert.mockResolvedValue(upserted);
 
-    const result = await service.getWindow('user-1');
-    expect(result).toBeNull();
+      const result = await service.setConfig('user-1', dto);
+      expect(result.fastHours).toBe(16);
+      expect(result.eatStartHour).toBe(12);
+      expect(prismaMock.fastingConfig.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' } }),
+      );
+    });
+
+    it('activa la configuración por defecto si active no se especifica', async () => {
+      const dto = { fastHours: 14, eatHours: 10, eatStartHour: 10 };
+      prismaMock.fastingConfig.upsert.mockResolvedValue({ ...dto, active: true, userId: 'user-1' });
+
+      await service.setConfig('user-1', dto);
+      const upsertArg = prismaMock.fastingConfig.upsert.mock.calls[0][0];
+      expect(upsertArg.create.active).toBe(true);
+    });
   });
 
-  it('upsertWindow crea o actualiza la ventana de ayuno', async () => {
-    const dto    = { startHour: 12, durationHours: 16 };
-    const upserted = { id: 'fw-1', userId: 'user-1', ...dto, active: true };
+  // ─ getStatus ─────────────────────────────────────────────────
+  describe('getStatus()', () => {
+    it('retorna status inactive si no hay config', async () => {
+      prismaMock.fastingConfig.findUnique.mockResolvedValue(null);
 
-    // Algunos implementations usan upsert, otros create/update
-    prismaMock.fastingWindow.upsert.mockResolvedValue(upserted);
-    prismaMock.fastingWindow.create.mockResolvedValue(upserted);
-    prismaMock.fastingWindow.findFirst.mockResolvedValue(null);
-    prismaMock.fastingWindow.update.mockResolvedValue(upserted);
+      const result = await service.getStatus('user-1');
+      expect(result.active).toBe(false);
+      expect(result.message).toContain('No fasting config');
+    });
 
-    // Llamamos al método que corresponda (setWindow o upsertWindow)
-    const fn = (service as any).setWindow ?? (service as any).upsertWindow ?? (service as any).saveWindow;
-    if (fn) {
-      const result = await fn.call(service, 'user-1', dto);
-      expect(result).toHaveProperty('durationHours', 16);
-    } else {
-      // Fallback: verifica que el servicio al menos instanció
-      expect(service).toBeDefined();
-    }
-  });
+    it('retorna status inactive si active=false', async () => {
+      prismaMock.fastingConfig.findUnique.mockResolvedValue({
+        id: 'fc-1', userId: 'user-1', fastHours: 16, eatHours: 8, eatStartHour: 12, active: false,
+      });
 
-  it('isInFastingWindow retorna estado booleano', async () => {
-    const window = { id: 'fw-1', userId: 'user-1', startHour: 12, durationHours: 16, active: true };
-    prismaMock.fastingWindow.findFirst.mockResolvedValue(window);
+      const result = await service.getStatus('user-1');
+      expect(result.active).toBe(false);
+    });
 
-    const result = await service.getStatus('user-1');
-    // El resultado debe incluir algún campo de estado
-    expect(result).toBeDefined();
+    it('retorna estructura completa cuando la config está activa', async () => {
+      prismaMock.fastingConfig.findUnique.mockResolvedValue({
+        id: 'fc-1', userId: 'user-1', fastHours: 16, eatHours: 8, eatStartHour: 12, active: true,
+      });
+
+      const result = await service.getStatus('user-1');
+      expect(result.active).toBe(true);
+      expect(result).toHaveProperty('fasting');
+      expect(result).toHaveProperty('inEatingWindow');
+      expect(result).toHaveProperty('windowLabel');
+      expect(result).toHaveProperty('eatStartHour', 12);
+      expect(result.eatEndHour).toBe(20); // 12 + 8 = 20
+    });
+
+    it('calcula windowLabel correctamente (16:8)', async () => {
+      prismaMock.fastingConfig.findUnique.mockResolvedValue({
+        id: 'fc-1', userId: 'user-1', fastHours: 16, eatHours: 8, eatStartHour: 12, active: true,
+      });
+
+      const result = await service.getStatus('user-1');
+      expect(result.windowLabel).toBe('16:8');
+    });
   });
 });

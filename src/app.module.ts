@@ -14,6 +14,8 @@ import { SupplementsModule } from './supplements/supplements.module';
 import { SleepModule } from './sleep/sleep.module';
 import { FastingModule } from './fasting/fasting.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { WeightModule } from './weight/weight.module';
+import { MealPlanModule } from './meal-plan/meal-plan.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
     SleepModule,
     FastingModule,
     DashboardModule,
+    WeightModule,
+    MealPlanModule,
   ],
   controllers: [AppController],
   providers:   [AppService],

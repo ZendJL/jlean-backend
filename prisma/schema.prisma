@@ -10,23 +10,25 @@ datasource db {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 model User {
-  id            String          @id @default(uuid())
-  email         String          @unique
-  passwordHash  String
-  name          String
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  profile       Profile?
-  userGoals     UserGoal[]
-  dayTypes      DayType[]
-  assignedDays  DayAssignment[]
-  recipes       Recipe[]
-  foodLogs      FoodLog[]
-  refreshTokens RefreshToken[]
-  supplements   Supplement[]
+  id             String          @id @default(uuid())
+  email          String          @unique
+  passwordHash   String
+  name           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  profile        Profile?
+  userGoals      UserGoal[]
+  dayTypes       DayType[]
+  assignedDays   DayAssignment[]
+  recipes        Recipe[]
+  foodLogs       FoodLog[]
+  refreshTokens  RefreshToken[]
+  supplements    Supplement[]
   supplementLogs SupplementLog[]
-  sleepEntries  SleepEntry[]
-  fastingConfig FastingConfig?
+  sleepEntries   SleepEntry[]
+  fastingConfig  FastingConfig?
+  weightLogs     WeightLog[]
+  mealPlans      MealPlan[]
   @@map("users")
 }
 
@@ -81,11 +83,9 @@ enum Goal {
 }
 
 // ─── Goal History ─────────────────────────────────────────────────────────────
-// Cada vez que el usuario cambia sus metas se crea un registro nuevo.
-// effectiveTo = null significa que es el registro activo.
 
 model UserGoal {
-  id            String    @id @default(uuid())
+  id            String        @id @default(uuid())
   userId        String
   calorieTarget Int
   proteinTarget Float
@@ -93,42 +93,39 @@ model UserGoal {
   fatTarget     Float
   goal          Goal
   activityLevel ActivityLevel
-  effectiveFrom DateTime  @default(now())
+  effectiveFrom DateTime      @default(now())
   effectiveTo   DateTime?
-  createdAt     DateTime  @default(now())
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime      @default(now())
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, effectiveFrom])
   @@map("user_goals")
 }
 
 // ─── Day Types ────────────────────────────────────────────────────────────────
-// Tipos de día configurables por el usuario. tdeAdjustPct ajusta el TDEE.
-// Ej: Rest = -15, Training = +15, Race = +35, Fasting = -40, Refeed = +15
 
 model DayType {
-  id              String          @id @default(uuid())
-  userId          String
-  name            String          // "Rest Day", "Training", "Race", etc.
-  tdeAdjustPct    Float           @default(0) // porcentaje de ajuste sobre el TDEE base
-  color           String?         // color HEX para UI
-  isDefault       Boolean         @default(false)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assignments     DayAssignment[]
+  id           String          @id @default(uuid())
+  userId       String
+  name         String
+  tdeAdjustPct Float           @default(0)
+  color        String?
+  isDefault    Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments  DayAssignment[]
   @@unique([userId, name])
   @@map("day_types")
 }
 
-// Asignación de un tipo de día a una fecha concreta
 model DayAssignment {
-  id         String   @id @default(uuid())
-  userId     String
-  dayTypeId  String
-  date       DateTime @db.Date
-  createdAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dayType    DayType  @relation(fields: [dayTypeId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  userId    String
+  dayTypeId String
+  date      DateTime @db.Date
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayType   DayType  @relation(fields: [dayTypeId], references: [id], onDelete: Cascade)
   @@unique([userId, date])
   @@index([userId, date])
   @@map("day_assignments")
@@ -137,29 +134,30 @@ model DayAssignment {
 // ─── Foods ────────────────────────────────────────────────────────────────────
 
 model Food {
-  id           String        @id @default(uuid())
-  name         String
-  brand        String?
-  source       FoodSource    @default(CUSTOM)
-  externalId   String?
-  barcode      String?
-  servingSizeG Float         @default(100)
-  servingUnit  String        @default("g")
-  calories     Float
-  protein      Float
-  carbs        Float
-  fat          Float
-  fiber        Float?
-  sugar        Float?
-  sodium       Float?
-  saturatedFat Float?
-  caffeineMg   Float?
-  alcoholG     Float?
-  qualityStatus DataQuality @default(COMPLETE)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  recipeItems  RecipeItem[]
-  foodLogItems FoodLogItem[]
+  id            String        @id @default(uuid())
+  name          String
+  brand         String?
+  source        FoodSource    @default(CUSTOM)
+  externalId    String?
+  barcode       String?
+  servingSizeG  Float         @default(100)
+  servingUnit   String        @default("g")
+  calories      Float
+  protein       Float
+  carbs         Float
+  fat           Float
+  fiber         Float?
+  sugar         Float?
+  sodium        Float?
+  saturatedFat  Float?
+  caffeineMg    Float?
+  alcoholG      Float?
+  qualityStatus DataQuality   @default(COMPLETE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  recipeItems   RecipeItem[]
+  foodLogItems  FoodLogItem[]
+  mealPlanItems MealPlanItem[]
   @@unique([source, externalId])
   @@index([name])
   @@index([barcode])
@@ -183,27 +181,28 @@ enum DataQuality {
 // ─── Recipes ──────────────────────────────────────────────────────────────────
 
 model Recipe {
-  id           String        @id @default(uuid())
-  userId       String
-  name         String
-  description  String?
-  servings     Int           @default(1)
-  isPublic     Boolean       @default(false)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items        RecipeItem[]
-  foodLogItems FoodLogItem[]
+  id            String         @id @default(uuid())
+  userId        String
+  name          String
+  description   String?
+  servings      Int            @default(1)
+  isPublic      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items         RecipeItem[]
+  foodLogItems  FoodLogItem[]
+  mealPlanItems MealPlanItem[]
   @@map("recipes")
 }
 
 model RecipeItem {
-  id        String @id @default(uuid())
-  recipeId  String
-  foodId    String
+  id       String @id @default(uuid())
+  recipeId String
+  foodId   String
   quantityG Float
-  recipe    Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  food      Food   @relation(fields: [foodId], references: [id])
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  food     Food   @relation(fields: [foodId], references: [id])
   @@map("recipe_items")
 }
 
@@ -222,22 +221,21 @@ model FoodLog {
 }
 
 model FoodLogItem {
-  id           String   @id @default(uuid())
-  logId        String
-  foodId       String?
-  recipeId     String?
-  meal         Meal     @default(OTHER)
-  quantityG    Float
-  // snapshot inmutable al momento del registro
+  id               String   @id @default(uuid())
+  logId            String
+  foodId           String?
+  recipeId         String?
+  meal             Meal     @default(OTHER)
+  quantityG        Float
   snapshotName     String?
   snapshotCalories Float?
   snapshotProtein  Float?
   snapshotCarbs    Float?
   snapshotFat      Float?
-  createdAt    DateTime @default(now())
-  log          FoodLog  @relation(fields: [logId], references: [id], onDelete: Cascade)
-  food         Food?    @relation(fields: [foodId], references: [id])
-  recipe       Recipe?  @relation(fields: [recipeId], references: [id])
+  createdAt        DateTime @default(now())
+  log              FoodLog  @relation(fields: [logId], references: [id], onDelete: Cascade)
+  food             Food?    @relation(fields: [foodId], references: [id])
+  recipe           Recipe?  @relation(fields: [recipeId], references: [id])
   @@map("food_log_items")
 }
 
@@ -252,20 +250,20 @@ enum Meal {
 // ─── Supplements ─────────────────────────────────────────────────────────────
 
 model Supplement {
-  id               String          @id @default(uuid())
-  userId           String
-  name             String
-  doseAmount       Float
-  doseUnit         String
-  frequency        String?
-  timing           String?
-  notes            String?
+  id                String          @id @default(uuid())
+  userId            String
+  name              String
+  doseAmount        Float
+  doseUnit          String
+  frequency         String?
+  timing            String?
+  notes             String?
   caffeinePerDoseMg Float?
-  active           Boolean         @default(true)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs             SupplementLog[]
+  active            Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs              SupplementLog[]
   @@map("supplements")
 }
 
@@ -283,17 +281,17 @@ model SupplementLog {
 // ─── Sleep ────────────────────────────────────────────────────────────────────
 
 model SleepEntry {
-  id            String   @id @default(uuid())
-  userId        String
-  bedtime       DateTime
-  wakeTime      DateTime
-  durationMin   Int
-  qualityScore  Float?
-  deepSleepMin  Int?
-  remSleepMin   Int?
-  awakensCount  Int?
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid())
+  userId       String
+  bedtime      DateTime
+  wakeTime     DateTime
+  durationMin  Int
+  qualityScore Float?
+  deepSleepMin Int?
+  remSleepMin  Int?
+  awakensCount Int?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("sleep_entries")
 }
 
@@ -310,4 +308,50 @@ model FastingConfig {
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("fasting_configs")
+}
+
+// ─── Weight History (v2) ──────────────────────────────────────────────────────
+// Registro temporal del peso corporal del usuario.
+
+model WeightLog {
+  id          String   @id @default(uuid())
+  userId      String
+  weightKg    Float
+  note        String?
+  recordedAt  DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, recordedAt])
+  @@map("weight_logs")
+}
+
+// ─── Meal Planning (v2) ───────────────────────────────────────────────────────
+// Plan semanal de comidas. Cada plan cubre una semana (weekStart = lunes).
+
+model MealPlan {
+  id        String         @id @default(uuid())
+  userId    String
+  name      String
+  weekStart DateTime       @db.Date
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     MealPlanItem[]
+  @@index([userId, weekStart])
+  @@map("meal_plans")
+}
+
+model MealPlanItem {
+  id         String   @id @default(uuid())
+  planId     String
+  date       DateTime @db.Date
+  meal       Meal     @default(OTHER)
+  foodId     String?
+  recipeId   String?
+  quantityG  Float    @default(100)
+  createdAt  DateTime @default(now())
+  plan       MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  food       Food?    @relation(fields: [foodId], references: [id])
+  recipe     Recipe?  @relation(fields: [recipeId], references: [id])
+  @@index([planId, date])
+  @@map("meal_plan_items")
 }

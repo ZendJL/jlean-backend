@@ -29,7 +29,19 @@ let FoodsController = class FoodsController {
         return this.foods.getByBarcode(code);
     }
     import(dto) {
-        return this.foods.importFood(dto);
+        if (dto.source === import_food_dto_1.ImportSource.USDA && dto.externalId) {
+            return this.foods.importFromUsda(dto.externalId);
+        }
+        if (dto.source === import_food_dto_1.ImportSource.CUSTOM) {
+            return this.foods.createCustomFood({
+                name: dto.name ?? 'Custom Food',
+                calories: dto.calories ?? 0,
+                protein: dto.protein ?? 0,
+                carbs: dto.carbs ?? 0,
+                fat: dto.fat ?? 0,
+            });
+        }
+        return { error: 'Para OFF usa GET /foods/barcode/:code' };
     }
     getById(id) {
         return this.foods.getById(id);

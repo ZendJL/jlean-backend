@@ -8,16 +8,19 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var RecipesService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RecipesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
-let RecipesService = class RecipesService {
+let RecipesService = RecipesService_1 = class RecipesService {
     prisma;
+    logger = new common_1.Logger(RecipesService_1.name);
     constructor(prisma) {
         this.prisma = prisma;
     }
     async create(userId, dto) {
+        this.logger.log(`Creando receta "${dto.name}" para userId=${userId}`);
         const recipe = await this.prisma.recipe.create({
             data: {
                 userId,
@@ -34,7 +37,8 @@ let RecipesService = class RecipesService {
             },
             include: this.recipeInclude(),
         });
-        return this.formatRecipe(recipe);
+        this.logger.log(`Receta creada id=${recipe.id}`);
+        return this.formatRecipe(recipe, userId);
     }
     async findAll(userId) {
         const recipes = await this.prisma.recipe.findMany({
@@ -42,7 +46,7 @@ let RecipesService = class RecipesService {
             include: this.recipeInclude(),
             orderBy: { createdAt: 'desc' },
         });
-        return recipes.map((r) => this.formatRecipe(r));
+        return recipes.map((r) => this.formatRecipe(r, userId));
     }
     async findOne(userId, id) {
         const recipe = await this.prisma.recipe.findUnique({
@@ -53,7 +57,7 @@ let RecipesService = class RecipesService {
             throw new common_1.NotFoundException('Receta no encontrada');
         if (recipe.userId !== userId && !recipe.isPublic)
             throw new common_1.ForbiddenException('Sin acceso a esta receta');
-        return this.formatRecipe(recipe);
+        return this.formatRecipe(recipe, userId);
     }
     async update(userId, id, dto) {
         const recipe = await this.prisma.recipe.findUnique({ where: { id } });
@@ -64,6 +68,7 @@ let RecipesService = class RecipesService {
         if (dto.items) {
             await this.prisma.recipeItem.deleteMany({ where: { recipeId: id } });
         }
+        this.logger.log(`Actualizando receta id=${id} para userId=${userId}`);
         const updated = await this.prisma.recipe.update({
             where: { id },
             data: {
@@ -82,7 +87,7 @@ let RecipesService = class RecipesService {
             },
             include: this.recipeInclude(),
         });
-        return this.formatRecipe(updated);
+        return this.formatRecipe(updated, userId);
     }
     async remove(userId, id) {
         const recipe = await this.prisma.recipe.findUnique({ where: { id } });
@@ -90,6 +95,7 @@ let RecipesService = class RecipesService {
             throw new common_1.NotFoundException('Receta no encontrada');
         if (recipe.userId !== userId)
             throw new common_1.ForbiddenException('No es tu receta');
+        this.logger.log(`Eliminando receta id=${id} para userId=${userId}`);
         await this.prisma.recipe.delete({ where: { id } });
         return { deleted: true };
     }
@@ -101,7 +107,7 @@ let RecipesService = class RecipesService {
             },
         };
     }
-    formatRecipe(recipe) {
+    formatRecipe(recipe, userId) {
         const macros = this.calcMacros(recipe.items, recipe.servings);
         return {
             id: recipe.id,
@@ -109,7 +115,7 @@ let RecipesService = class RecipesService {
             description: recipe.description,
             servings: recipe.servings,
             isPublic: recipe.isPublic,
-            isOwner: true,
+            isOwner: recipe.userId === userId,
             createdAt: recipe.createdAt,
             items: recipe.items.map((item) => ({
                 id: item.id,
@@ -158,7 +164,7 @@ let RecipesService = class RecipesService {
     }
 };
 exports.RecipesService = RecipesService;
-exports.RecipesService = RecipesService = __decorate([
+exports.RecipesService = RecipesService = RecipesService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], RecipesService);

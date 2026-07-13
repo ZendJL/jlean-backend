@@ -15,13 +15,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RecipesController = void 0;
 const common_1 = require("@nestjs/common");
 const recipes_service_1 = require("./recipes.service");
+const recipe_builder_service_1 = require("./recipe-builder.service");
 const create_recipe_dto_1 = require("./dto/create-recipe.dto");
 const update_recipe_dto_1 = require("./dto/update-recipe.dto");
+const build_macros_dto_1 = require("./dto/build-macros.dto");
+const build_micros_dto_1 = require("./dto/build-micros.dto");
 const jwt_guard_1 = require("../auth/jwt.guard");
 let RecipesController = class RecipesController {
     recipes;
-    constructor(recipes) {
+    builder;
+    constructor(recipes, builder) {
         this.recipes = recipes;
+        this.builder = builder;
     }
     create(req, dto) {
         return this.recipes.create(req.user.id, dto);
@@ -37,6 +42,15 @@ let RecipesController = class RecipesController {
     }
     remove(req, id) {
         return this.recipes.remove(req.user.id, id);
+    }
+    buildByMacros(dto) {
+        return this.builder.buildByMacros(dto);
+    }
+    buildByMicros(dto) {
+        return this.builder.buildByMicros({
+            ...dto,
+            microField: dto.microField,
+        });
     }
 };
 exports.RecipesController = RecipesController;
@@ -81,9 +95,24 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], RecipesController.prototype, "remove", null);
+__decorate([
+    (0, common_1.Post)('build/macros'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [build_macros_dto_1.BuildMacrosDto]),
+    __metadata("design:returntype", void 0)
+], RecipesController.prototype, "buildByMacros", null);
+__decorate([
+    (0, common_1.Post)('build/micros'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [build_micros_dto_1.BuildMicrosDto]),
+    __metadata("design:returntype", void 0)
+], RecipesController.prototype, "buildByMicros", null);
 exports.RecipesController = RecipesController = __decorate([
     (0, common_1.Controller)('recipes'),
     (0, common_1.UseGuards)(jwt_guard_1.JwtGuard),
-    __metadata("design:paramtypes", [recipes_service_1.RecipesService])
+    __metadata("design:paramtypes", [recipes_service_1.RecipesService,
+        recipe_builder_service_1.RecipeBuilderService])
 ], RecipesController);
 //# sourceMappingURL=recipes.controller.js.map

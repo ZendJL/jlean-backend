@@ -1,24 +1,34 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { JwtStrategy } from './jwt.strategy';
-import { JwtGuard } from './jwt.guard';
 import { DayTypesModule } from '../day-types/day-types.module';
 
 @Module({
   imports: [
-    PassportModule,
-    JwtModule.register({}),
+    ConfigModule,
     UsersModule,
     PrismaModule,
-    DayTypesModule,   // necesario para seedDefaultDayTypes al registrar usuario
+    PassportModule,
+    DayTypesModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: async (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET'),
+        signOptions: {
+          expiresIn: config.get<string>('JWT_EXPIRES_IN') || '15m',
+        },
+      }),
+    }),
   ],
   controllers: [AuthController],
-  providers:   [AuthService, JwtStrategy, JwtGuard],
-  exports:     [AuthService, JwtGuard],
+  providers: [AuthService, JwtStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}

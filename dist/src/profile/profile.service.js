@@ -8,12 +8,14 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var ProfileService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProfileService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
-let ProfileService = class ProfileService {
+let ProfileService = ProfileService_1 = class ProfileService {
     prisma;
+    logger = new common_1.Logger(ProfileService_1.name);
     constructor(prisma) {
         this.prisma = prisma;
     }
@@ -27,27 +29,66 @@ let ProfileService = class ProfileService {
         const data = { ...dto };
         if (dto.birthDate)
             data.birthDate = new Date(dto.birthDate);
-        const updated = await this.prisma.profile.update({
+        if (data.birthDate && isNaN(data.birthDate.getTime())) {
+            throw new common_1.BadRequestException('Fecha de nacimiento inválida');
+        }
+        const updated = await this.prisma.profile.upsert({
             where: { userId },
-            data,
+            create: { userId, ...data },
+            update: data,
         });
         if (updated.weightKg && updated.heightCm && updated.birthDate && updated.gender) {
             const macros = this.calculateMacros(updated);
-            return this.prisma.profile.update({
+            this.logger.log(`Macros calculados para userId=${userId}: ` +
+                `cal=${macros.calorieTarget}, prot=${macros.proteinTarget}, ` +
+                `carbs=${macros.carbTarget}, fat=${macros.fatTarget}`);
+            const final = await this.prisma.profile.update({
                 where: { userId },
                 data: macros,
             });
+            await this.saveGoalHistory(userId, final);
+            return final;
         }
         return updated;
     }
+    async saveGoalHistory(userId, profile) {
+        await this.prisma.userGoal.updateMany({
+            where: { userId, effectiveTo: null },
+            data: { effectiveTo: new Date() },
+        });
+        await this.prisma.userGoal.create({
+            data: {
+                userId,
+                calorieTarget: profile.calorieTarget ?? 0,
+                proteinTarget: profile.proteinTarget ?? 0,
+                carbTarget: profile.carbTarget ?? 0,
+                fatTarget: profile.fatTarget ?? 0,
+                goal: profile.goal,
+                activityLevel: profile.activityLevel,
+                effectiveFrom: new Date(),
+                effectiveTo: null,
+            },
+        });
+        this.logger.log(`Snapshot de metas guardado para userId=${userId}`);
+    }
+    async getGoalHistory(userId) {
+        return this.prisma.userGoal.findMany({
+            where: { userId },
+            orderBy: { effectiveFrom: 'desc' },
+        });
+    }
     calculateMacros(profile) {
+        if (!profile.birthDate)
+            throw new common_1.BadRequestException('Fecha de nacimiento requerida para calcular macros');
         const age = this.getAge(profile.birthDate);
+        if (age < 1 || age > 130)
+            throw new common_1.BadRequestException(`Edad calculada fuera de rango: ${age} años`);
         let bmr;
         if (profile.gender === 'MALE') {
-            bmr = 88.362 + (13.397 * profile.weightKg) + (4.799 * profile.heightCm) - (5.677 * age);
+            bmr = (10 * profile.weightKg) + (6.25 * profile.heightCm) - (5 * age) + 5;
         }
         else {
-            bmr = 447.593 + (9.247 * profile.weightKg) + (3.098 * profile.heightCm) - (4.330 * age);
+            bmr = (10 * profile.weightKg) + (6.25 * profile.heightCm) - (5 * age) - 161;
         }
         const activityMultipliers = {
             SEDENTARY: 1.2,
@@ -57,15 +98,21 @@ let ProfileService = class ProfileService {
             EXTRA_ACTIVE: 1.9,
         };
         const tdee = bmr * (activityMultipliers[profile.activityLevel] ?? 1.2);
-        const goalAdjustments = {
-            LOSE: -500,
-            MAINTAIN: 0,
-            GAIN: 300,
+        const goalFactors = {
+            LOSE: 0.80,
+            MAINTAIN: 1.00,
+            GAIN: 1.15,
         };
-        const calorieTarget = Math.round(tdee + (goalAdjustments[profile.goal] ?? 0));
-        const proteinTarget = Math.round((calorieTarget * 0.30) / 4);
-        const carbTarget = Math.round((calorieTarget * 0.40) / 4);
-        const fatTarget = Math.round((calorieTarget * 0.30) / 9);
+        const calorieTarget = Math.round(tdee * (goalFactors[profile.goal] ?? 1.0));
+        const ratios = {
+            LOSE: { p: 0.35, c: 0.40, f: 0.25 },
+            MAINTAIN: { p: 0.30, c: 0.45, f: 0.25 },
+            GAIN: { p: 0.30, c: 0.50, f: 0.20 },
+        };
+        const r = ratios[profile.goal] ?? ratios.MAINTAIN;
+        const proteinTarget = Math.round((calorieTarget * r.p) / 4);
+        const carbTarget = Math.round((calorieTarget * r.c) / 4);
+        const fatTarget = Math.round((calorieTarget * r.f) / 9);
         return { calorieTarget, proteinTarget, carbTarget, fatTarget };
     }
     getAge(birthDate) {
@@ -91,21 +138,11 @@ let ProfileService = class ProfileService {
         const consumed = { calories: 0, protein: 0, carbs: 0, fat: 0 };
         if (log) {
             for (const item of log.items) {
-                if (item.food) {
-                    const ratio = item.quantityG / (item.food.servingSizeG || 100);
-                    consumed.calories += item.food.calories * ratio;
-                    consumed.protein += item.food.protein * ratio;
-                    consumed.carbs += item.food.carbs * ratio;
-                    consumed.fat += item.food.fat * ratio;
-                }
-                if (item.recipe) {
-                    for (const ri of item.recipe.items) {
-                        const ratio = (item.quantityG / (item.recipe.servings || 1)) / (ri.food.servingSizeG || 100) * ri.quantityG;
-                        consumed.calories += ri.food.calories * ratio / ri.quantityG;
-                        consumed.protein += ri.food.protein * ratio / ri.quantityG;
-                        consumed.carbs += ri.food.carbs * ratio / ri.quantityG;
-                        consumed.fat += ri.food.fat * ratio / ri.quantityG;
-                    }
+                if (item.snapshotCalories != null) {
+                    consumed.calories += item.snapshotCalories;
+                    consumed.protein += item.snapshotProtein ?? 0;
+                    consumed.carbs += item.snapshotCarbs ?? 0;
+                    consumed.fat += item.snapshotFat ?? 0;
                 }
             }
         }
@@ -134,7 +171,7 @@ let ProfileService = class ProfileService {
     }
 };
 exports.ProfileService = ProfileService;
-exports.ProfileService = ProfileService = __decorate([
+exports.ProfileService = ProfileService = ProfileService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService])
 ], ProfileService);

@@ -15,48 +15,57 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProfileController = void 0;
 const common_1 = require("@nestjs/common");
 const profile_service_1 = require("./profile.service");
-const update_profile_dto_1 = require("./dto/update-profile.dto");
 const jwt_guard_1 = require("../auth/jwt.guard");
 let ProfileController = class ProfileController {
-    profile;
-    constructor(profile) {
-        this.profile = profile;
+    service;
+    constructor(service) {
+        this.service = service;
     }
-    get(req) {
-        return this.profile.getProfile(req.user.id);
+    getProfile(req) {
+        return this.service.getProfile(req.user.id);
     }
-    update(req, dto) {
-        return this.profile.updateProfile(req.user.id, dto);
+    updateProfile(req, body) {
+        return this.service.updateProfile(req.user.id, body);
     }
-    daily(req) {
-        return this.profile.getDaily(req.user.id);
+    getDaily(req) {
+        return this.service.getDaily(req.user.id);
+    }
+    getGoalHistory(req) {
+        return this.service.getGoalHistory(req.user.id);
     }
 };
 exports.ProfileController = ProfileController;
 __decorate([
-    (0, common_1.Get)(),
+    (0, common_1.Get)('profile'),
     __param(0, (0, common_1.Request)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
-], ProfileController.prototype, "get", null);
+], ProfileController.prototype, "getProfile", null);
 __decorate([
-    (0, common_1.Put)(),
+    (0, common_1.Put)('profile'),
     __param(0, (0, common_1.Request)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, update_profile_dto_1.UpdateProfileDto]),
+    __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
-], ProfileController.prototype, "update", null);
+], ProfileController.prototype, "updateProfile", null);
 __decorate([
     (0, common_1.Get)('daily'),
     __param(0, (0, common_1.Request)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
-], ProfileController.prototype, "daily", null);
+], ProfileController.prototype, "getDaily", null);
+__decorate([
+    (0, common_1.Get)('goals'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], ProfileController.prototype, "getGoalHistory", null);
 exports.ProfileController = ProfileController = __decorate([
-    (0, common_1.Controller)('profile'),
+    (0, common_1.Controller)('me'),
     (0, common_1.UseGuards)(jwt_guard_1.JwtGuard),
     __metadata("design:paramtypes", [profile_service_1.ProfileService])
 ], ProfileController);

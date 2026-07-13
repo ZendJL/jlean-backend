@@ -8,17 +8,21 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FoodsModule = void 0;
 const common_1 = require("@nestjs/common");
-const axios_1 = require("@nestjs/axios");
-const foods_service_1 = require("./foods.service");
 const foods_controller_1 = require("./foods.controller");
+const foods_service_1 = require("./foods.service");
+const usda_client_1 = require("./usda.client");
+const off_client_1 = require("./off.client");
+const prisma_module_1 = require("../prisma/prisma.module");
+const config_1 = require("@nestjs/config");
+const external_api_monitor_service_1 = require("../common/services/external-api-monitor.service");
 let FoodsModule = class FoodsModule {
 };
 exports.FoodsModule = FoodsModule;
 exports.FoodsModule = FoodsModule = __decorate([
     (0, common_1.Module)({
-        imports: [axios_1.HttpModule],
-        providers: [foods_service_1.FoodsService],
+        imports: [prisma_module_1.PrismaModule, config_1.ConfigModule],
         controllers: [foods_controller_1.FoodsController],
+        providers: [foods_service_1.FoodsService, usda_client_1.UsdaClient, off_client_1.OffClient, external_api_monitor_service_1.ExternalApiMonitorService],
         exports: [foods_service_1.FoodsService],
     })
 ], FoodsModule);

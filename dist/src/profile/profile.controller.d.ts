@@ -1,11 +1,11 @@
 import { ProfileService } from './profile.service';
-import { UpdateProfileDto } from './dto/update-profile.dto';
 export declare class ProfileController {
-    private profile;
-    constructor(profile: ProfileService);
-    get(req: any): Promise<{
+    private service;
+    constructor(service: ProfileService);
+    getProfile(req: any): Promise<{
         id: string;
         updatedAt: Date;
+        userId: string;
         birthDate: Date | null;
         gender: import("@prisma/client").$Enums.Gender | null;
         heightCm: number | null;
@@ -16,11 +16,11 @@ export declare class ProfileController {
         proteinTarget: number | null;
         carbTarget: number | null;
         fatTarget: number | null;
-        userId: string;
     }>;
-    update(req: any, dto: UpdateProfileDto): Promise<{
+    updateProfile(req: any, body: any): Promise<{
         id: string;
         updatedAt: Date;
+        userId: string;
         birthDate: Date | null;
         gender: import("@prisma/client").$Enums.Gender | null;
         heightCm: number | null;
@@ -31,9 +31,8 @@ export declare class ProfileController {
         proteinTarget: number | null;
         carbTarget: number | null;
         fatTarget: number | null;
-        userId: string;
     }>;
-    daily(req: any): Promise<{
+    getDaily(req: any): Promise<{
         date: string;
         targets: {
             calories: number;
@@ -54,4 +53,17 @@ export declare class ProfileController {
             fat: number;
         };
     }>;
+    getGoalHistory(req: any): Promise<{
+        id: string;
+        createdAt: Date;
+        userId: string;
+        activityLevel: import("@prisma/client").$Enums.ActivityLevel;
+        goal: import("@prisma/client").$Enums.Goal;
+        calorieTarget: number;
+        proteinTarget: number;
+        carbTarget: number;
+        fatTarget: number;
+        effectiveTo: Date | null;
+        effectiveFrom: Date;
+    }[]>;
 }

@@ -10,10 +10,12 @@ interface UpdateProfileDto {
 }
 export declare class ProfileService {
     private prisma;
+    private readonly logger;
     constructor(prisma: PrismaService);
     getProfile(userId: string): Promise<{
         id: string;
         updatedAt: Date;
+        userId: string;
         birthDate: Date | null;
         gender: import("@prisma/client").$Enums.Gender | null;
         heightCm: number | null;
@@ -24,11 +26,11 @@ export declare class ProfileService {
         proteinTarget: number | null;
         carbTarget: number | null;
         fatTarget: number | null;
-        userId: string;
     }>;
     updateProfile(userId: string, dto: UpdateProfileDto): Promise<{
         id: string;
         updatedAt: Date;
+        userId: string;
         birthDate: Date | null;
         gender: import("@prisma/client").$Enums.Gender | null;
         heightCm: number | null;
@@ -39,8 +41,21 @@ export declare class ProfileService {
         proteinTarget: number | null;
         carbTarget: number | null;
         fatTarget: number | null;
-        userId: string;
     }>;
+    private saveGoalHistory;
+    getGoalHistory(userId: string): Promise<{
+        id: string;
+        createdAt: Date;
+        userId: string;
+        activityLevel: import("@prisma/client").$Enums.ActivityLevel;
+        goal: import("@prisma/client").$Enums.Goal;
+        calorieTarget: number;
+        proteinTarget: number;
+        carbTarget: number;
+        fatTarget: number;
+        effectiveTo: Date | null;
+        effectiveFrom: Date;
+    }[]>;
     private calculateMacros;
     private getAge;
     getDaily(userId: string): Promise<{

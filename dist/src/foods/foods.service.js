@@ -8,141 +8,215 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var FoodsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FoodsService = void 0;
 const common_1 = require("@nestjs/common");
-const axios_1 = require("@nestjs/axios");
-const config_1 = require("@nestjs/config");
 const prisma_service_1 = require("../prisma/prisma.service");
 const client_1 = require("@prisma/client");
-const rxjs_1 = require("rxjs");
-let FoodsService = class FoodsService {
-    http;
-    config;
+const usda_client_1 = require("./usda.client");
+const off_client_1 = require("./off.client");
+const SOURCE_PRIORITY = {
+    PRESET: 0,
+    CUSTOM: 1,
+    OFF: 2,
+    USDA: 3,
+};
+let FoodsService = FoodsService_1 = class FoodsService {
     prisma;
-    usdaBase = 'https://api.nal.usda.gov/fdc/v1';
-    offBase = 'https://world.openfoodfacts.org/cgi/search.pl';
-    offItem = 'https://world.openfoodfacts.org/api/v2/product';
-    constructor(http, config, prisma) {
-        this.http = http;
-        this.config = config;
+    usda;
+    off;
+    logger = new common_1.Logger(FoodsService_1.name);
+    constructor(prisma, usda, off) {
         this.prisma = prisma;
+        this.usda = usda;
+        this.off = off;
     }
-    async search(q, source = 'local') {
-        if (source === 'usda')
-            return this.searchUsda(q);
-        if (source === 'off')
-            return this.searchOff(q);
-        return this.searchLocal(q);
+    async search(query, source = 'local') {
+        if (source === 'usda') {
+            try {
+                const results = await this.usda.search(query);
+                return results.map(FoodsService_1.mapUsdaToView);
+            }
+            catch (err) {
+                if (err?.status === 429 || err?.getStatus?.() === 429)
+                    throw err;
+                this.logger.warn(`USDA search falló (${err?.message ?? err}), usando catálogo local como fallback`);
+                return this.searchLocal(query);
+            }
+        }
+        if (source === 'off') {
+            try {
+                const results = await this.off.search(query);
+                return results.map(FoodsService_1.mapOffToView);
+            }
+            catch (err) {
+                if (err?.status === 429 || err?.getStatus?.() === 429)
+                    throw err;
+                this.logger.warn(`OFF search falló (${err?.message ?? err}), usando catálogo local como fallback`);
+                return this.searchLocal(query);
+            }
+        }
+        return this.searchLocal(query);
     }
-    async searchLocal(q) {
-        return this.prisma.food.findMany({
-            where: { name: { contains: q, mode: 'insensitive' } },
-            take: 20,
+    async searchLocal(query) {
+        const foods = await this.prisma.food.findMany({
+            where: { name: { contains: query, mode: 'insensitive' } },
+            orderBy: [{ name: 'asc' }],
+            take: 50,
         });
-    }
-    async searchUsda(q) {
-        const apiKey = this.config.get('USDA_FDC_API_KEY');
-        const url = this.usdaBase + '/foods/search';
-        const { data } = await (0, rxjs_1.firstValueFrom)(this.http.get(url, { params: { query: q, api_key: apiKey, pageSize: 20 } }));
-        return (data.foods ?? []).map((f) => ({
-            externalId: String(f.fdcId),
-            source: client_1.FoodSource.USDA,
-            name: f.description,
-            brand: f.brandOwner ?? null,
-            calories: this.getNutrient(f.foodNutrients, 1008),
-            protein: this.getNutrient(f.foodNutrients, 1003),
-            carbs: this.getNutrient(f.foodNutrients, 1005),
-            fat: this.getNutrient(f.foodNutrients, 1004),
-            servingSizeG: f.servingSize ?? 100,
-        }));
-    }
-    async searchOff(q) {
-        const { data } = await (0, rxjs_1.firstValueFrom)(this.http.get(this.offBase, {
-            params: { search_terms: q, json: 1, page_size: 20 },
-        }));
-        return (data.products ?? []).map((p) => this.mapOffProduct(p));
+        return foods.sort((a, b) => {
+            const pa = SOURCE_PRIORITY[a.source] ?? 99;
+            const pb = SOURCE_PRIORITY[b.source] ?? 99;
+            if (pa !== pb)
+                return pa - pb;
+            return a.name.localeCompare(b.name);
+        });
     }
     async getByBarcode(barcode) {
-        const cached = await this.prisma.food.findFirst({
-            where: { externalId: barcode, source: client_1.FoodSource.OPEN_FOOD_FACTS },
-        });
+        const cached = await this.prisma.food.findFirst({ where: { barcode } });
         if (cached)
             return cached;
-        const url = `${this.offItem}/${barcode}.json`;
-        let data;
-        try {
-            const res = await (0, rxjs_1.firstValueFrom)(this.http.get(url, {
-                params: { fields: 'product_name,brands,nutriments,serving_size,image_url' },
-            }));
-            data = res.data;
-        }
-        catch {
-            throw new common_1.NotFoundException(`Producto con código ${barcode} no encontrado`);
-        }
-        if (data.status !== 1 || !data.product)
-            throw new common_1.NotFoundException(`Producto con código ${barcode} no encontrado`);
-        return this.mapOffProduct({ ...data.product, id: barcode });
-    }
-    async importFood(dto) {
-        const existing = await this.prisma.food.findFirst({
-            where: { externalId: dto.externalId, source: dto.source },
-        });
-        if (existing)
-            return existing;
-        return this.prisma.food.create({
-            data: {
-                externalId: dto.externalId,
-                source: dto.source,
-                name: dto.name,
-                brand: dto.brand,
-                calories: dto.calories,
-                protein: dto.protein,
-                carbs: dto.carbs,
-                fat: dto.fat,
-                servingSizeG: dto.servingSizeG ?? 100,
-            },
-        });
+        const offFood = await this.off.getByBarcode(barcode);
+        if (!offFood)
+            throw new common_1.NotFoundException(`Food with barcode ${barcode} not found`);
+        return this.importOffFood(offFood);
     }
     async getById(id) {
         const food = await this.prisma.food.findUnique({ where: { id } });
         if (!food)
-            throw new common_1.NotFoundException('Alimento no encontrado');
+            throw new common_1.NotFoundException(`Food ${id} not found`);
         return food;
     }
-    mapOffProduct(p) {
+    async importFromUsda(fdcId) {
+        const existing = await this.prisma.food.findFirst({
+            where: { source: client_1.FoodSource.USDA, externalId: String(fdcId) },
+        });
+        if (existing) {
+            this.logger.log(`USDA food fdcId=${fdcId} ya existe en BD (id=${existing.id}), retornando existente`);
+            return existing;
+        }
+        let detail = null;
+        try {
+            detail = await this.usda.getDetail(fdcId);
+        }
+        catch (err) {
+            if (err?.status === 429 || err?.getStatus?.() === 429)
+                throw err;
+            this.logger.warn(`USDA getDetail fdcId=${fdcId} falló: ${err?.message}`);
+            throw new common_1.NotFoundException(`No se pudo obtener el alimento USDA ${fdcId}. Intenta más tarde.`);
+        }
+        if (!detail)
+            throw new common_1.NotFoundException(`USDA food ${fdcId} not found`);
+        this.logger.log(`Importando USDA food fdcId=${fdcId} → "${detail.description}"`);
+        return this.prisma.food.create({
+            data: {
+                name: detail.description,
+                source: client_1.FoodSource.USDA,
+                externalId: String(detail.fdcId),
+                brand: detail.brandOwner,
+                servingSizeG: detail.servingSize ?? 100,
+                servingUnit: detail.servingSizeUnit ?? 'g',
+                calories: detail.calories,
+                protein: detail.protein,
+                carbs: detail.carbs,
+                fat: detail.fat,
+                fiber: detail.fiber,
+                sugar: detail.sugar,
+                sodium: detail.sodium,
+                saturatedFat: detail.saturatedFat,
+                caffeineMg: detail.caffeineMg,
+                qualityStatus: client_1.DataQuality.COMPLETE,
+            },
+        });
+    }
+    async importOffFood(offFood) {
+        const existing = await this.prisma.food.findFirst({
+            where: { source: client_1.FoodSource.OFF, externalId: offFood.barcode },
+        });
+        if (existing) {
+            this.logger.log(`OFF food barcode=${offFood.barcode} ya existe (id=${existing.id}), retornando existente`);
+            return existing;
+        }
+        this.logger.log(`Importando OFF food barcode=${offFood.barcode} → "${offFood.name}"`);
+        return this.prisma.food.create({
+            data: {
+                name: offFood.name,
+                brand: offFood.brand,
+                source: client_1.FoodSource.OFF,
+                externalId: offFood.barcode,
+                barcode: offFood.barcode,
+                servingSizeG: offFood.servingSizeG,
+                servingUnit: 'g',
+                calories: offFood.calories,
+                protein: offFood.protein,
+                carbs: offFood.carbs,
+                fat: offFood.fat,
+                fiber: offFood.fiber,
+                sugar: offFood.sugar,
+                sodium: offFood.sodium,
+                saturatedFat: offFood.saturatedFat,
+                qualityStatus: offFood.qualityStatus,
+            },
+        });
+    }
+    async createCustomFood(dto) {
+        return this.prisma.food.create({
+            data: {
+                ...dto,
+                source: client_1.FoodSource.CUSTOM,
+                qualityStatus: client_1.DataQuality.COMPLETE,
+            },
+        });
+    }
+    static mapUsdaToView(f) {
         return {
-            externalId: String(p.id ?? p._id ?? ''),
-            source: client_1.FoodSource.OPEN_FOOD_FACTS,
-            name: p.product_name ?? p.product_name_en ?? 'Unknown',
-            brand: p.brands ?? null,
-            calories: this.round(p.nutriments?.['energy-kcal_100g'] ?? 0),
-            protein: this.round(p.nutriments?.protein_100g ?? 0),
-            carbs: this.round(p.nutriments?.carbohydrates_100g ?? 0),
-            fat: this.round(p.nutriments?.fat_100g ?? 0),
-            servingSizeG: this.parseServingSize(p.serving_size) ?? 100,
-            imageUrl: p.image_url ?? null,
+            id: `usda-${f.fdcId}`,
+            name: f.description,
+            brand: f.brandOwner,
+            source: 'USDA',
+            externalId: String(f.fdcId),
+            servingSizeG: f.servingSize ?? 100,
+            servingUnit: f.servingSizeUnit ?? 'g',
+            calories: f.calories,
+            protein: f.protein,
+            carbs: f.carbs,
+            fat: f.fat,
+            fiber: f.fiber,
+            sugar: f.sugar,
+            sodium: f.sodium,
+            saturatedFat: f.saturatedFat,
+            caffeineMg: f.caffeineMg,
+            qualityStatus: 'COMPLETE',
         };
     }
-    parseServingSize(raw) {
-        if (!raw)
-            return null;
-        const match = raw.match(/(\d+(?:\.\d+)?)/);
-        return match ? parseFloat(match[1]) : null;
-    }
-    getNutrient(nutrients, nutrientId) {
-        const n = nutrients?.find((x) => x.nutrientId === nutrientId);
-        return n ? this.round(n.value) : 0;
-    }
-    round(n) {
-        return Math.round(n * 10) / 10;
+    static mapOffToView(f) {
+        return {
+            id: `off-${f.barcode}`,
+            name: f.name,
+            brand: f.brand,
+            source: 'OFF',
+            externalId: f.barcode,
+            barcode: f.barcode,
+            servingSizeG: f.servingSizeG,
+            servingUnit: 'g',
+            calories: f.calories,
+            protein: f.protein,
+            carbs: f.carbs,
+            fat: f.fat,
+            fiber: f.fiber,
+            sugar: f.sugar,
+            sodium: f.sodium,
+            saturatedFat: f.saturatedFat,
+            qualityStatus: f.qualityStatus,
+        };
     }
 };
 exports.FoodsService = FoodsService;
-exports.FoodsService = FoodsService = __decorate([
+exports.FoodsService = FoodsService = FoodsService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [axios_1.HttpService,
-        config_1.ConfigService,
-        prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        usda_client_1.UsdaClient,
+        off_client_1.OffClient])
 ], FoodsService);
 //# sourceMappingURL=foods.service.js.map

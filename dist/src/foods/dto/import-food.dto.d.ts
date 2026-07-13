@@ -1,12 +1,14 @@
-import { FoodSource } from '@prisma/client';
+export declare enum ImportSource {
+    USDA = "USDA",
+    OFF = "OFF",
+    CUSTOM = "CUSTOM"
+}
 export declare class ImportFoodDto {
-    externalId: string;
-    source: FoodSource;
-    name: string;
-    brand?: string;
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    servingSizeG?: number;
+    source: ImportSource;
+    externalId?: string;
+    name?: string;
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
 }

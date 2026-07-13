@@ -21,6 +21,7 @@ interface UpdateRecipeDto {
 }
 export declare class RecipesService {
     private prisma;
+    private readonly logger;
     constructor(prisma: PrismaService);
     create(userId: string, dto: CreateRecipeDto): Promise<{
         id: any;

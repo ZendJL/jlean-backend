@@ -41,6 +41,7 @@ var __importStar = (this && this.__importStar) || (function () {
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var AuthService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthService = void 0;
 const common_1 = require("@nestjs/common");
@@ -48,24 +49,31 @@ const jwt_1 = require("@nestjs/jwt");
 const config_1 = require("@nestjs/config");
 const users_service_1 = require("../users/users.service");
 const prisma_service_1 = require("../prisma/prisma.service");
+const day_types_service_1 = require("../day-types/day-types.service");
 const bcrypt = __importStar(require("bcrypt"));
-let AuthService = class AuthService {
+let AuthService = AuthService_1 = class AuthService {
     users;
     jwt;
     config;
     prisma;
-    constructor(users, jwt, config, prisma) {
+    dayTypes;
+    logger = new common_1.Logger(AuthService_1.name);
+    constructor(users, jwt, config, prisma, dayTypes) {
         this.users = users;
         this.jwt = jwt;
         this.config = config;
         this.prisma = prisma;
+        this.dayTypes = dayTypes;
     }
     async register(email, password, name) {
         const existing = await this.users.findByEmail(email);
         if (existing)
             throw new common_1.ConflictException('El email ya está registrado');
+        this.logger.log(`Registrando nuevo usuario: ${email}`);
         const user = await this.users.create(email, password, name);
         await this.prisma.profile.create({ data: { userId: user.id } });
+        await this.dayTypes.seedDefaultDayTypes(user.id);
+        this.logger.log(`Usuario registrado con id=${user.id}`);
         return this.generateTokens(user.id, user.email);
     }
     async login(email, password) {
@@ -75,6 +83,7 @@ let AuthService = class AuthService {
         const valid = await bcrypt.compare(password, user.passwordHash);
         if (!valid)
             throw new common_1.UnauthorizedException('Credenciales inválidas');
+        this.logger.log(`Login exitoso para userId=${user.id}`);
         return this.generateTokens(user.id, user.email);
     }
     async refresh(token) {
@@ -82,11 +91,18 @@ let AuthService = class AuthService {
         if (!stored || stored.expiresAt < new Date()) {
             throw new common_1.UnauthorizedException('Refresh token inválido o expirado');
         }
+        const user = await this.users.findById(stored.userId);
+        if (!user) {
+            await this.prisma.refreshToken.delete({ where: { token } });
+            throw new common_1.UnauthorizedException('Usuario no encontrado para este refresh token');
+        }
+        this.logger.log(`Refresh token rotado para userId=${stored.userId}`);
         await this.prisma.refreshToken.delete({ where: { token } });
-        return this.generateTokens(stored.userId, '');
+        return this.generateTokens(user.id, user.email);
     }
     async logout(token) {
         await this.prisma.refreshToken.deleteMany({ where: { token } });
+        this.logger.log('Refresh token eliminado en logout');
     }
     async generateTokens(userId, email) {
         const payload = { sub: userId, email };
@@ -107,11 +123,12 @@ let AuthService = class AuthService {
     }
 };
 exports.AuthService = AuthService;
-exports.AuthService = AuthService = __decorate([
+exports.AuthService = AuthService = AuthService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [users_service_1.UsersService,
         jwt_1.JwtService,
         config_1.ConfigService,
-        prisma_service_1.PrismaService])
+        prisma_service_1.PrismaService,
+        day_types_service_1.DayTypesService])
 ], AuthService);
 //# sourceMappingURL=auth.service.js.map

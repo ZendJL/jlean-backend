@@ -10,23 +10,38 @@ exports.AuthModule = void 0;
 const common_1 = require("@nestjs/common");
 const jwt_1 = require("@nestjs/jwt");
 const passport_1 = require("@nestjs/passport");
-const auth_service_1 = require("./auth.service");
+const config_1 = require("@nestjs/config");
 const auth_controller_1 = require("./auth.controller");
+const auth_service_1 = require("./auth.service");
 const jwt_strategy_1 = require("./jwt.strategy");
 const users_module_1 = require("../users/users.module");
+const prisma_module_1 = require("../prisma/prisma.module");
+const day_types_module_1 = require("../day-types/day-types.module");
 let AuthModule = class AuthModule {
 };
 exports.AuthModule = AuthModule;
 exports.AuthModule = AuthModule = __decorate([
     (0, common_1.Module)({
         imports: [
+            config_1.ConfigModule,
             users_module_1.UsersModule,
+            prisma_module_1.PrismaModule,
             passport_1.PassportModule,
-            jwt_1.JwtModule.register({}),
+            day_types_module_1.DayTypesModule,
+            jwt_1.JwtModule.registerAsync({
+                imports: [config_1.ConfigModule],
+                inject: [config_1.ConfigService],
+                useFactory: async (config) => ({
+                    secret: config.get('JWT_SECRET'),
+                    signOptions: {
+                        expiresIn: config.get('JWT_EXPIRES_IN') || '15m',
+                    },
+                }),
+            }),
         ],
-        providers: [auth_service_1.AuthService, jwt_strategy_1.JwtStrategy],
         controllers: [auth_controller_1.AuthController],
-        exports: [auth_service_1.AuthService, jwt_strategy_1.JwtStrategy],
+        providers: [auth_service_1.AuthService, jwt_strategy_1.JwtStrategy],
+        exports: [auth_service_1.AuthService],
     })
 ], AuthModule);
 //# sourceMappingURL=auth.module.js.map

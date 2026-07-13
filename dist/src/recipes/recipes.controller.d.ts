@@ -1,9 +1,13 @@
 import { RecipesService } from './recipes.service';
+import { RecipeBuilderService } from './recipe-builder.service';
 import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { UpdateRecipeDto } from './dto/update-recipe.dto';
+import { BuildMacrosDto } from './dto/build-macros.dto';
+import { BuildMicrosDto } from './dto/build-micros.dto';
 export declare class RecipesController {
     private recipes;
-    constructor(recipes: RecipesService);
+    private builder;
+    constructor(recipes: RecipesService, builder: RecipeBuilderService);
     create(req: any, dto: CreateRecipeDto): Promise<{
         id: any;
         name: any;
@@ -95,4 +99,6 @@ export declare class RecipesController {
     remove(req: any, id: string): Promise<{
         deleted: boolean;
     }>;
+    buildByMacros(dto: BuildMacrosDto): Promise<import("./recipe-builder.service").MacrosBuildResult>;
+    buildByMicros(dto: BuildMicrosDto): Promise<import("./recipe-builder.service").MicrosBuildResult>;
 }

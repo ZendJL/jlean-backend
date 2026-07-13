@@ -8,15 +8,18 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DiaryModule = void 0;
 const common_1 = require("@nestjs/common");
-const diary_service_1 = require("./diary.service");
 const diary_controller_1 = require("./diary.controller");
+const diary_service_1 = require("./diary.service");
+const prisma_module_1 = require("../prisma/prisma.module");
+const day_types_module_1 = require("../day-types/day-types.module");
 let DiaryModule = class DiaryModule {
 };
 exports.DiaryModule = DiaryModule;
 exports.DiaryModule = DiaryModule = __decorate([
     (0, common_1.Module)({
-        providers: [diary_service_1.DiaryService],
+        imports: [prisma_module_1.PrismaModule, day_types_module_1.DayTypesModule],
         controllers: [diary_controller_1.DiaryController],
+        providers: [diary_service_1.DiaryService],
         exports: [diary_service_1.DiaryService],
     })
 ], DiaryModule);

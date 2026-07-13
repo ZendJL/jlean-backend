@@ -1,5 +1,10 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { DayTypesService } from '../day-types/day-types.service';
 import { Meal } from '@prisma/client';
+export interface DiaryAlert {
+    type: 'CAFFEINE_LIMIT' | 'CAFFEINE_LATE' | 'ALCOHOL_DETECTED' | 'SODIUM_HIGH' | 'ALLERGEN_DETECTED';
+    message: string;
+}
 interface AddItemDto {
     foodId?: string;
     recipeId?: string;
@@ -12,88 +17,115 @@ interface UpdateItemDto {
 }
 export declare class DiaryService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private dayTypes;
+    private readonly logger;
+    constructor(prisma: PrismaService, dayTypes: DayTypesService);
     getLog(userId: string, dateStr?: string): Promise<{
         id: any;
         date: any;
         items: any;
     }>;
     addItem(userId: string, dto: AddItemDto, dateStr?: string): Promise<{
-        food: {
+        item: {
+            food: {
+                fiber: number | null;
+                sugar: number | null;
+                saturatedFat: number | null;
+                caffeineMg: number | null;
+                sodium: number | null;
+                source: import("@prisma/client").$Enums.FoodSource;
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                brand: string | null;
+                externalId: string | null;
+                barcode: string | null;
+                servingSizeG: number;
+                servingUnit: string;
+                calories: number;
+                protein: number;
+                carbs: number;
+                fat: number;
+                alcoholG: number | null;
+                qualityStatus: import("@prisma/client").$Enums.DataQuality;
+            } | null;
+            recipe: ({
+                items: ({
+                    food: {
+                        fiber: number | null;
+                        sugar: number | null;
+                        saturatedFat: number | null;
+                        caffeineMg: number | null;
+                        sodium: number | null;
+                        source: import("@prisma/client").$Enums.FoodSource;
+                        id: string;
+                        name: string;
+                        createdAt: Date;
+                        updatedAt: Date;
+                        brand: string | null;
+                        externalId: string | null;
+                        barcode: string | null;
+                        servingSizeG: number;
+                        servingUnit: string;
+                        calories: number;
+                        protein: number;
+                        carbs: number;
+                        fat: number;
+                        alcoholG: number | null;
+                        qualityStatus: import("@prisma/client").$Enums.DataQuality;
+                    };
+                } & {
+                    id: string;
+                    foodId: string;
+                    recipeId: string;
+                    quantityG: number;
+                })[];
+            } & {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                userId: string;
+                description: string | null;
+                servings: number;
+                isPublic: boolean;
+            }) | null;
+        } & {
             id: string;
-            name: string;
             createdAt: Date;
-            updatedAt: Date;
-            brand: string | null;
-            source: import("@prisma/client").$Enums.FoodSource;
-            externalId: string | null;
-            barcode: string | null;
-            servingSizeG: number;
-            servingUnit: string;
+            logId: string;
+            foodId: string | null;
+            recipeId: string | null;
+            meal: import("@prisma/client").$Enums.Meal;
+            quantityG: number;
+            snapshotName: string | null;
+            snapshotCalories: number | null;
+            snapshotProtein: number | null;
+            snapshotCarbs: number | null;
+            snapshotFat: number | null;
+        };
+        macros: {
             calories: number;
             protein: number;
             carbs: number;
             fat: number;
-            fiber: number | null;
-            sugar: number | null;
-            sodium: number | null;
-            saturatedFat: number | null;
-        } | null;
-        recipe: ({
-            items: ({
-                food: {
-                    id: string;
-                    name: string;
-                    createdAt: Date;
-                    updatedAt: Date;
-                    brand: string | null;
-                    source: import("@prisma/client").$Enums.FoodSource;
-                    externalId: string | null;
-                    barcode: string | null;
-                    servingSizeG: number;
-                    servingUnit: string;
-                    calories: number;
-                    protein: number;
-                    carbs: number;
-                    fat: number;
-                    fiber: number | null;
-                    sugar: number | null;
-                    sodium: number | null;
-                    saturatedFat: number | null;
-                };
-            } & {
-                id: string;
-                foodId: string;
-                recipeId: string;
-                quantityG: number;
-            })[];
-        } & {
-            id: string;
-            name: string;
-            createdAt: Date;
-            updatedAt: Date;
-            userId: string;
-            description: string | null;
-            servings: number;
-            isPublic: boolean;
-        }) | null;
-    } & {
-        id: string;
-        createdAt: Date;
-        logId: string;
-        foodId: string | null;
-        recipeId: string | null;
-        meal: import("@prisma/client").$Enums.Meal;
-        quantityG: number;
+        };
+        alerts: DiaryAlert[];
     }>;
     updateItem(userId: string, itemId: string, dto: UpdateItemDto): Promise<{
         food: {
+            fiber: number | null;
+            sugar: number | null;
+            saturatedFat: number | null;
+            caffeineMg: number | null;
+            sodium: number | null;
+            source: import("@prisma/client").$Enums.FoodSource;
             id: string;
             name: string;
             createdAt: Date;
             updatedAt: Date;
             brand: string | null;
-            source: import("@prisma/client").$Enums.FoodSource;
             externalId: string | null;
             barcode: string | null;
             servingSizeG: number;
@@ -102,20 +134,23 @@ export declare class DiaryService {
             protein: number;
             carbs: number;
             fat: number;
-            fiber: number | null;
-            sugar: number | null;
-            sodium: number | null;
-            saturatedFat: number | null;
+            alcoholG: number | null;
+            qualityStatus: import("@prisma/client").$Enums.DataQuality;
         } | null;
         recipe: ({
             items: ({
                 food: {
+                    fiber: number | null;
+                    sugar: number | null;
+                    saturatedFat: number | null;
+                    caffeineMg: number | null;
+                    sodium: number | null;
+                    source: import("@prisma/client").$Enums.FoodSource;
                     id: string;
                     name: string;
                     createdAt: Date;
                     updatedAt: Date;
                     brand: string | null;
-                    source: import("@prisma/client").$Enums.FoodSource;
                     externalId: string | null;
                     barcode: string | null;
                     servingSizeG: number;
@@ -124,10 +159,8 @@ export declare class DiaryService {
                     protein: number;
                     carbs: number;
                     fat: number;
-                    fiber: number | null;
-                    sugar: number | null;
-                    sodium: number | null;
-                    saturatedFat: number | null;
+                    alcoholG: number | null;
+                    qualityStatus: import("@prisma/client").$Enums.DataQuality;
                 };
             } & {
                 id: string;
@@ -153,6 +186,11 @@ export declare class DiaryService {
         recipeId: string | null;
         meal: import("@prisma/client").$Enums.Meal;
         quantityG: number;
+        snapshotName: string | null;
+        snapshotCalories: number | null;
+        snapshotProtein: number | null;
+        snapshotCarbs: number | null;
+        snapshotFat: number | null;
     }>;
     deleteItem(userId: string, itemId: string): Promise<{
         deleted: boolean;
@@ -165,6 +203,12 @@ export declare class DiaryService {
             carbs: number;
             fat: number;
         };
+        dayType: {
+            name: string;
+            color: string | null;
+            tdeAdjustPct: number;
+            adjustFactor: number;
+        } | null;
         consumed: {
             calories: number;
             protein: number;
@@ -200,8 +244,20 @@ export declare class DiaryService {
     private itemInclude;
     private logInclude;
     private formatLog;
-    private calcItemMacros;
-    private calcConsumed;
+    calcItemMacros(item: any): {
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+    };
+    private calcItemNutrients;
+    private calcConsumedNutrients;
+    calcConsumed(items: any[]): {
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+    };
     private round;
 }
 export {};
